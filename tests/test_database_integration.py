@@ -5,10 +5,25 @@ from pathlib import Path
 
 import psycopg
 import pytest
-from testcontainers.postgres import PostgresContainer
 
 from data_sync.config import SyncConfig
 from data_sync.database import DatabaseConnection, sync_csv_to_postgres
+
+# Check if Docker is available
+try:
+    import docker
+    from testcontainers.postgres import PostgresContainer
+
+    docker_client = docker.from_env()
+    docker_client.ping()
+    DOCKER_AVAILABLE = True
+except Exception:
+    DOCKER_AVAILABLE = False
+    PostgresContainer = None  # type: ignore
+
+pytestmark = pytest.mark.skipif(
+    not DOCKER_AVAILABLE, reason="Docker not available - skipping integration tests"
+)
 
 
 @pytest.fixture(scope="module")
