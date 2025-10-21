@@ -85,13 +85,10 @@ class SyncConfig:
               my_job:
                 target_table: users
                 id_mapping:
-                  csv_column: user_id
-                  db_column: id
+                  user_id: id
                 columns:
-                  - csv_column: name
-                    db_column: full_name
-                  - csv_column: email
-                    db_column: email
+                  name: full_name
+                  email: email_address
         """
         if not config_path.exists():
             raise FileNotFoundError(f"Config file not found: {config_path}")
@@ -128,25 +125,28 @@ class SyncConfig:
         if "id_mapping" not in job_data:
             raise ValueError(f"Job '{name}' missing 'id_mapping'")
 
+        # Parse id_mapping as a dict: {csv_column: db_column}
         id_data = job_data["id_mapping"]
-        if "csv_column" not in id_data or "db_column" not in id_data:
-            raise ValueError(f"Job '{name}' id_mapping must have 'csv_column' and 'db_column'")
+        if not isinstance(id_data, dict):
+            raise ValueError(f"Job '{name}' id_mapping must be a dictionary")
 
-        id_mapping = ColumnMapping(csv_column=id_data["csv_column"], db_column=id_data["db_column"])
+        if len(id_data) != 1:
+            raise ValueError(
+                f"Job '{name}' id_mapping must have exactly one mapping (source: destination)"
+            )
 
+        csv_col, db_col = next(iter(id_data.items()))
+        id_mapping = ColumnMapping(csv_column=csv_col, db_column=db_col)
+
+        # Parse columns as a dict: {csv_column: db_column}
         columns = []
         if "columns" in job_data and job_data["columns"]:
-            for col_data in job_data["columns"]:
-                if "csv_column" not in col_data or "db_column" not in col_data:
-                    raise ValueError(
-                        f"Job '{name}' column mapping must have 'csv_column' and 'db_column'"
-                    )
-                columns.append(
-                    ColumnMapping(
-                        csv_column=col_data["csv_column"],
-                        db_column=col_data["db_column"],
-                    )
-                )
+            col_data = job_data["columns"]
+            if not isinstance(col_data, dict):
+                raise ValueError(f"Job '{name}' columns must be a dictionary")
+
+            for csv_col, db_col in col_data.items():
+                columns.append(ColumnMapping(csv_column=csv_col, db_column=db_col))
 
         return SyncJob(
             name=name,
