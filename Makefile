@@ -27,7 +27,7 @@ format:
 	ruff format .
 
 type-check:
-	mypy src/myapp
+	mypy src/data_sync
 
 clean:
 	rm -rf build/

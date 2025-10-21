@@ -1,91 +1,118 @@
 """Tests for core business logic."""
 
+from pathlib import Path
+
 import pytest
 
-from myapp.core import process_data, validate_input
+from data_sync.core import get_file_type, sync_file
 
 
-class TestProcessData:
-    """Test suite for process_data function."""
+class TestGetFileType:
+    """Test suite for get_file_type function."""
 
-    def test_basic_processing(self) -> None:
-        """Test basic text processing without options."""
-        result = process_data("world")
-        assert result == "Hello, world!"
+    def test_csv_file(self, tmp_path: Path) -> None:
+        """Test CSV file type detection."""
+        csv_file = tmp_path / "data.csv"
+        csv_file.touch()
+        assert get_file_type(csv_file) == "csv"
 
-    def test_uppercase_conversion(self) -> None:
-        """Test uppercase conversion option."""
-        result = process_data("world", uppercase=True)
-        assert result == "HELLO, WORLD!"
+    def test_cdf_file(self, tmp_path: Path) -> None:
+        """Test CDF file type detection."""
+        cdf_file = tmp_path / "science.cdf"
+        cdf_file.touch()
+        assert get_file_type(cdf_file) == "cdf"
 
-    def test_repeat_once(self) -> None:
-        """Test repeat with count of 1 (default)."""
-        result = process_data("test", repeat=1)
-        assert result == "Hello, test!"
+    def test_uppercase_extension(self, tmp_path: Path) -> None:
+        """Test file type detection with uppercase extension."""
+        csv_file = tmp_path / "data.CSV"
+        csv_file.touch()
+        assert get_file_type(csv_file) == "csv"
 
-    def test_repeat_multiple(self) -> None:
-        """Test repeating text multiple times."""
-        result = process_data("hi", repeat=3)
-        assert result == "Hello, hi! Hello, hi! Hello, hi!"
+    def test_mixed_case_extension(self, tmp_path: Path) -> None:
+        """Test file type detection with mixed case extension."""
+        cdf_file = tmp_path / "data.CdF"
+        cdf_file.touch()
+        assert get_file_type(cdf_file) == "cdf"
 
-    def test_uppercase_and_repeat(self) -> None:
-        """Test combining uppercase and repeat options."""
-        result = process_data("test", uppercase=True, repeat=2)
-        assert result == "HELLO, TEST! HELLO, TEST!"
+    def test_unsupported_extension(self, tmp_path: Path) -> None:
+        """Test that unsupported file extensions raise ValueError."""
+        txt_file = tmp_path / "data.txt"
+        txt_file.touch()
 
-    def test_invalid_repeat_count(self) -> None:
-        """Test that invalid repeat count raises ValueError."""
-        with pytest.raises(ValueError, match="Repeat count must be at least 1"):
-            process_data("test", repeat=0)
+        with pytest.raises(ValueError, match="Unsupported file extension"):
+            get_file_type(txt_file)
 
-        with pytest.raises(ValueError, match="Repeat count must be at least 1"):
-            process_data("test", repeat=-1)
+    def test_no_extension(self, tmp_path: Path) -> None:
+        """Test file with no extension raises ValueError."""
+        no_ext_file = tmp_path / "data"
+        no_ext_file.touch()
 
-    def test_empty_string(self) -> None:
-        """Test processing empty string."""
-        result = process_data("")
-        assert result == "Hello, !"
-
-    def test_special_characters(self) -> None:
-        """Test processing text with special characters."""
-        result = process_data("hello@world!")
-        assert result == "Hello, hello@world!!"
-
-    def test_unicode_characters(self) -> None:
-        """Test processing text with unicode characters."""
-        result = process_data("世界")
-        assert result == "Hello, 世界!"
+        with pytest.raises(ValueError, match="Unsupported file extension"):
+            get_file_type(no_ext_file)
 
 
-class TestValidateInput:
-    """Test suite for validate_input function."""
+class TestSyncFile:
+    """Test suite for sync_file function."""
 
-    def test_valid_input(self) -> None:
-        """Test validation of valid input."""
-        assert validate_input("valid text") is True
+    def test_sync_csv_file(self, tmp_path: Path) -> None:
+        """Test syncing a CSV file."""
+        csv_file = tmp_path / "data.csv"
+        csv_file.touch()
 
-    def test_empty_string(self) -> None:
-        """Test validation rejects empty string."""
-        assert validate_input("") is False
+        result = sync_file(csv_file)
 
-    def test_whitespace_only(self) -> None:
-        """Test validation rejects whitespace-only string."""
-        assert validate_input("   ") is False
-        assert validate_input("\t\n") is False
+        assert result["file_path"] == str(csv_file)
+        assert result["file_type"] == "csv"
+        assert result["records_processed"] == 0  # Placeholder returns 0
 
-    def test_max_length_boundary(self) -> None:
-        """Test validation at max length boundary."""
-        # Exactly at max length should pass
-        assert validate_input("a" * 100, max_length=100) is True
+    def test_sync_cdf_file(self, tmp_path: Path) -> None:
+        """Test syncing a CDF file."""
+        cdf_file = tmp_path / "science.cdf"
+        cdf_file.touch()
 
-        # One over max length should fail
-        assert validate_input("a" * 101, max_length=100) is False
+        result = sync_file(cdf_file)
 
-    def test_custom_max_length(self) -> None:
-        """Test validation with custom max length."""
-        assert validate_input("short", max_length=10) is True
-        assert validate_input("this is too long", max_length=10) is False
+        assert result["file_path"] == str(cdf_file)
+        assert result["file_type"] == "cdf"
+        assert result["records_processed"] == 0  # Placeholder returns 0
 
-    def test_valid_unicode(self) -> None:
-        """Test validation accepts unicode characters."""
-        assert validate_input("Hello 世界") is True
+    def test_sync_nonexistent_file(self, tmp_path: Path) -> None:
+        """Test syncing a file that doesn't exist raises FileNotFoundError."""
+        nonexistent = tmp_path / "doesnotexist.csv"
+
+        with pytest.raises(FileNotFoundError, match="File not found"):
+            sync_file(nonexistent)
+
+    def test_sync_unsupported_file(self, tmp_path: Path) -> None:
+        """Test syncing an unsupported file type raises ValueError."""
+        txt_file = tmp_path / "data.txt"
+        txt_file.touch()
+
+        with pytest.raises(ValueError, match="Unsupported file extension"):
+            sync_file(txt_file)
+
+    def test_sync_file_with_uppercase_extension(self, tmp_path: Path) -> None:
+        """Test syncing file with uppercase extension."""
+        csv_file = tmp_path / "DATA.CSV"
+        csv_file.touch()
+
+        result = sync_file(csv_file)
+
+        assert result["file_type"] == "csv"
+
+    def test_sync_result_structure(self, tmp_path: Path) -> None:
+        """Test that sync result has correct structure."""
+        csv_file = tmp_path / "test.csv"
+        csv_file.touch()
+
+        result = sync_file(csv_file)
+
+        # Check all required keys are present
+        assert "file_path" in result
+        assert "file_type" in result
+        assert "records_processed" in result
+
+        # Check types
+        assert isinstance(result["file_path"], str)
+        assert isinstance(result["file_type"], str)
+        assert isinstance(result["records_processed"], int)
