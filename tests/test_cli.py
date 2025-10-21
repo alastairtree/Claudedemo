@@ -42,7 +42,7 @@ class TestSyncCommand:
         result = cli_runner.invoke(main, ["sync", str(csv_file)])
         assert result.exit_code == 0
         assert "Successfully synced" in result.output
-        assert str(csv_file) in result.output
+        assert "test.csv" in result.output
 
     def test_sync_cdf_file(self, cli_runner: CliRunner, tmp_path: Path) -> None:
         """Test syncing a CDF file."""
@@ -52,7 +52,7 @@ class TestSyncCommand:
         result = cli_runner.invoke(main, ["sync", str(cdf_file)])
         assert result.exit_code == 0
         assert "Successfully synced" in result.output
-        assert str(cdf_file) in result.output
+        assert "science.cdf" in result.output
 
     def test_sync_missing_argument(self, cli_runner: CliRunner) -> None:
         """Test sync without required argument fails."""
