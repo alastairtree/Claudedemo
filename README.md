@@ -52,13 +52,10 @@ jobs:
   sync_users:
     target_table: users
     id_mapping:
-      csv_column: user_id
-      db_column: id
+      user_id: id
     columns:
-      - csv_column: name
-        db_column: full_name
-      - csv_column: email
-        db_column: email_address
+      name: full_name
+      email: email_address
 ```
 
 2. **Prepare your CSV file** (`users.csv`):
@@ -94,8 +91,7 @@ jobs:
   sync_products:
     target_table: products
     id_mapping:
-      csv_column: product_id
-      db_column: id
+      product_id: id
     # No columns specified = sync all columns
 ```
 
@@ -106,13 +102,10 @@ jobs:
   sync_with_rename:
     target_table: customers
     id_mapping:
-      csv_column: customer_id
-      db_column: id
+      customer_id: id
     columns:
-      - csv_column: first_name
-        db_column: fname
-      - csv_column: last_name
-        db_column: lname
+      first_name: fname
+      last_name: lname
       # Note: other CSV columns like 'internal_notes' won't be synced
 ```
 
@@ -154,12 +147,11 @@ Map CSV columns to different database column names:
 
 ```yaml
 id_mapping:
-  csv_column: user_id    # Column name in CSV
-  db_column: id          # Column name in database
+  user_id: id    # CSV column: Database column
 
 columns:
-  - csv_column: name
-    db_column: full_name  # Renamed in database
+  name: full_name      # CSV column: Database column
+  email: email_address  # Renamed in database
 ```
 
 #### Selective Syncing
@@ -173,10 +165,8 @@ user_id,name,email,internal_notes
 
 ```yaml
 columns:
-  - csv_column: name
-    db_column: full_name
-  - csv_column: email
-    db_column: email
+  name: full_name
+  email: email
   # internal_notes column is NOT synced
 ```
 

@@ -51,8 +51,7 @@ jobs:
   test:
     target_table: test
     id_mapping:
-      csv_column: id
-      db_column: id
+      id: id
 """)
 
         nonexistent = tmp_path / "doesnotexist.csv"
@@ -104,8 +103,7 @@ jobs:
   real_job:
     target_table: test
     id_mapping:
-      csv_column: id
-      db_column: id
+      id: id
 """)
 
         result = cli_runner.invoke(
@@ -134,8 +132,7 @@ jobs:
   test:
     target_table: test
     id_mapping:
-      csv_column: id
-      db_column: id
+      id: id
 """)
 
         result = cli_runner.invoke(main, ["sync", str(csv_file), str(config_file), "test"])

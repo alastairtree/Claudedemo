@@ -50,11 +50,9 @@ jobs:
   sync_users:
     target_table: users
     id_mapping:
-      csv_column: user_id
-      db_column: id
+      user_id: id
     columns:
-      - csv_column: name
-        db_column: full_name
+      name: full_name
 """)
 
         # Load config and get job
@@ -120,8 +118,7 @@ jobs:
   sync_products:
     target_table: products
     id_mapping:
-      csv_column: product_id
-      db_column: id
+      product_id: id
 """)
 
         config = SyncConfig.from_yaml(config_file)
@@ -167,8 +164,7 @@ jobs:
   test_upsert:
     target_table: test_data
     id_mapping:
-      csv_column: id
-      db_column: id
+      id: id
 """)
 
         config = SyncConfig.from_yaml(config_file)
@@ -210,17 +206,13 @@ jobs:
   bad_job:
     target_table: test
     id_mapping:
-      csv_column: id
-      db_column: id
+      id: id
     columns:
-      - csv_column: missing_column
-        db_column: value
+      missing_column: value
 """)
 
         config = SyncConfig.from_yaml(config_file)
         job = config.get_job("bad_job")
 
-        with DatabaseConnection(db_url) as db, pytest.raises(
-            ValueError, match="not found in CSV"
-        ):
+        with DatabaseConnection(db_url) as db, pytest.raises(ValueError, match="not found in CSV"):
             db.sync_csv_file(csv_file, job)

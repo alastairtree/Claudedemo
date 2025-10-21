@@ -18,13 +18,10 @@ jobs:
   test_job:
     target_table: users
     id_mapping:
-      csv_column: user_id
-      db_column: id
+      user_id: id
     columns:
-      - csv_column: name
-        db_column: full_name
-      - csv_column: email
-        db_column: email
+      name: full_name
+      email: email
 """)
 
         config = SyncConfig.from_yaml(config_file)
@@ -47,8 +44,7 @@ jobs:
   sync_all:
     target_table: products
     id_mapping:
-      csv_column: product_id
-      db_column: id
+      product_id: id
 """)
 
         config = SyncConfig.from_yaml(config_file)
@@ -78,8 +74,7 @@ jobs:
 jobs:
   bad_job:
     id_mapping:
-      csv_column: id
-      db_column: id
+      id: id
 """)
 
         with pytest.raises(ValueError, match="missing 'target_table'"):
@@ -105,8 +100,7 @@ jobs:
   job1:
     target_table: table1
     id_mapping:
-      csv_column: id
-      db_column: id
+      id: id
 """)
 
         config = SyncConfig.from_yaml(config_file)
