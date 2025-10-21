@@ -1,5 +1,6 @@
 """Tests for CLI commands."""
 
+import csv
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -31,66 +32,112 @@ class TestSyncCommand:
         """Test sync command help."""
         result = cli_runner.invoke(main, ["sync", "--help"])
         assert result.exit_code == 0
-        assert "Sync a CSV or CDF file" in result.output
+        assert "Sync a CSV file" in result.output
         assert "FILE_PATH" in result.output
+        assert "CONFIG" in result.output
+        assert "JOB" in result.output
 
-    def test_sync_csv_file(self, cli_runner: CliRunner, tmp_path: Path) -> None:
-        """Test syncing a CSV file."""
-        csv_file = tmp_path / "test.csv"
-        csv_file.touch()
-
-        result = cli_runner.invoke(main, ["sync", str(csv_file)])
-        assert result.exit_code == 0
-        assert "Successfully synced" in result.output
-        assert "test.csv" in result.output
-
-    def test_sync_cdf_file(self, cli_runner: CliRunner, tmp_path: Path) -> None:
-        """Test syncing a CDF file."""
-        cdf_file = tmp_path / "science.cdf"
-        cdf_file.touch()
-
-        result = cli_runner.invoke(main, ["sync", str(cdf_file)])
-        assert result.exit_code == 0
-        assert "Successfully synced" in result.output
-        assert "science.cdf" in result.output
-
-    def test_sync_missing_argument(self, cli_runner: CliRunner) -> None:
-        """Test sync without required argument fails."""
+    def test_sync_missing_arguments(self, cli_runner: CliRunner) -> None:
+        """Test sync without required arguments fails."""
         result = cli_runner.invoke(main, ["sync"])
         assert result.exit_code != 0
         assert "Missing argument" in result.output
 
     def test_sync_nonexistent_file(self, cli_runner: CliRunner, tmp_path: Path) -> None:
-        """Test sync with nonexistent file fails."""
+        """Test sync with nonexistent CSV file fails."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test:
+    target_table: test
+    id_mapping:
+      csv_column: id
+      db_column: id
+""")
+
         nonexistent = tmp_path / "doesnotexist.csv"
 
-        result = cli_runner.invoke(main, ["sync", str(nonexistent)])
+        result = cli_runner.invoke(
+            main,
+            [
+                "sync",
+                str(nonexistent),
+                str(config_file),
+                "test",
+                "--db-url",
+                "postgresql://localhost/test",
+            ],
+        )
         assert result.exit_code != 0
-        # Click validates path existence before our code runs
 
-    def test_sync_unsupported_file(self, cli_runner: CliRunner, tmp_path: Path) -> None:
-        """Test sync with unsupported file type fails."""
-        txt_file = tmp_path / "data.txt"
-        txt_file.touch()
-
-        result = cli_runner.invoke(main, ["sync", str(txt_file)])
-        assert result.exit_code == 1
-        assert "Error" in result.output
-
-    def test_sync_shows_records_processed(self, cli_runner: CliRunner, tmp_path: Path) -> None:
-        """Test sync shows number of records processed."""
-        csv_file = tmp_path / "data.csv"
+    def test_sync_nonexistent_config(self, cli_runner: CliRunner, tmp_path: Path) -> None:
+        """Test sync with nonexistent config file fails."""
+        csv_file = tmp_path / "test.csv"
         csv_file.touch()
 
-        result = cli_runner.invoke(main, ["sync", str(csv_file)])
-        assert result.exit_code == 0
-        assert "Records processed" in result.output
+        nonexistent_config = tmp_path / "nonexistent.yaml"
 
-    def test_sync_with_uppercase_extension(self, cli_runner: CliRunner, tmp_path: Path) -> None:
-        """Test sync handles uppercase file extensions."""
-        csv_file = tmp_path / "data.CSV"
+        result = cli_runner.invoke(
+            main,
+            [
+                "sync",
+                str(csv_file),
+                str(nonexistent_config),
+                "test",
+                "--db-url",
+                "postgresql://localhost/test",
+            ],
+        )
+        assert result.exit_code != 0
+
+    def test_sync_invalid_job_name(self, cli_runner: CliRunner, tmp_path: Path) -> None:
+        """Test sync with invalid job name fails gracefully."""
+        csv_file = tmp_path / "test.csv"
+        with open(csv_file, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["id", "value"])
+            writer.writeheader()
+            writer.writerow({"id": "1", "value": "test"})
+
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  real_job:
+    target_table: test
+    id_mapping:
+      csv_column: id
+      db_column: id
+""")
+
+        result = cli_runner.invoke(
+            main,
+            [
+                "sync",
+                str(csv_file),
+                str(config_file),
+                "nonexistent_job",
+                "--db-url",
+                "postgresql://localhost/test",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "Job 'nonexistent_job' not found" in result.output
+        assert "Available jobs: real_job" in result.output
+
+    def test_sync_missing_database_url(self, cli_runner: CliRunner, tmp_path: Path) -> None:
+        """Test sync without database URL fails."""
+        csv_file = tmp_path / "test.csv"
         csv_file.touch()
 
-        result = cli_runner.invoke(main, ["sync", str(csv_file)])
-        assert result.exit_code == 0
-        assert "Successfully synced" in result.output
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test:
+    target_table: test
+    id_mapping:
+      csv_column: id
+      db_column: id
+""")
+
+        result = cli_runner.invoke(main, ["sync", str(csv_file), str(config_file), "test"])
+        assert result.exit_code != 0
+        assert "Missing option" in result.output or "required" in result.output.lower()

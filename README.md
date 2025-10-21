@@ -1,6 +1,6 @@
 # data-sync
 
-Sync CSV and CDF science files into PostgreSQL database. A robust CLI application built with Python 3.11+, demonstrating best practices for maintainable Python software.
+Sync CSV and CDF science files into PostgreSQL database using configuration-based jobs. A robust CLI application built with Python 3.11+, demonstrating best practices for maintainable Python software.
 
 [![CI](https://github.com/yourusername/data-sync/workflows/CI/badge.svg)](https://github.com/yourusername/data-sync/actions)
 [![Python Version](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
@@ -8,14 +8,18 @@ Sync CSV and CDF science files into PostgreSQL database. A robust CLI applicatio
 
 ## Features
 
+- **Configuration-Based**: Define sync jobs in YAML with column mappings
+- **Column Mapping**: Rename columns between CSV and database
+- **Selective Sync**: Choose which columns to sync or sync all
+- **Idempotent Operations**: Safe to run multiple times, uses upsert
 - **Modern Python**: Built for Python 3.11+ with full type hints
-- **Robust Testing**: Comprehensive test suite with pytest (93% coverage)
+- **Robust Testing**: Comprehensive test suite with pytest (15 unit tests + 4 integration tests)
+- **Real Database Testing**: Integration tests with PostgreSQL via testcontainers
 - **CLI Interface**: User-friendly command-line interface using Click
 - **Rich Output**: Beautiful terminal output with Rich library
 - **Code Quality**: Automated linting with Ruff and type checking with MyPy
 - **CI/CD**: GitHub Actions workflow for automated testing and builds
 - **Cross-Platform**: Tested on Linux, Windows, and macOS
-- **Well Documented**: Clear documentation and examples
 
 ## Installation
 
@@ -23,6 +27,8 @@ Sync CSV and CDF science files into PostgreSQL database. A robust CLI applicatio
 
 - Python 3.11 or higher
 - pip
+- PostgreSQL database
+- Docker (for running integration tests)
 
 ### Install from source
 
@@ -37,36 +43,142 @@ pip install -e ".[dev]"
 
 ## Usage
 
-### Basic Commands
+### Quick Start
+
+1. **Create a configuration file** (`config.yaml`):
+
+```yaml
+jobs:
+  sync_users:
+    target_table: users
+    id_mapping:
+      csv_column: user_id
+      db_column: id
+    columns:
+      - csv_column: name
+        db_column: full_name
+      - csv_column: email
+        db_column: email_address
+```
+
+2. **Prepare your CSV file** (`users.csv`):
+
+```csv
+user_id,name,email,notes
+1,Alice,alice@example.com,Admin user
+2,Bob,bob@example.com,Regular user
+```
+
+3. **Run the sync**:
 
 ```bash
-# Display help
+# Set database URL
+export DATABASE_URL="postgresql://user:password@localhost:5432/mydb"
+
+# Sync the file
+data-sync sync users.csv config.yaml sync_users
+```
+
+### Configuration File Format
+
+The configuration file defines named jobs, each with:
+
+- `target_table`: The PostgreSQL table name
+- `id_mapping`: Mapping for the ID column (CSV column → DB column)
+- `columns`: Optional list of columns to sync (syncs all if omitted)
+
+#### Example: Sync All Columns
+
+```yaml
+jobs:
+  sync_products:
+    target_table: products
+    id_mapping:
+      csv_column: product_id
+      db_column: id
+    # No columns specified = sync all columns
+```
+
+#### Example: Selective Sync with Renaming
+
+```yaml
+jobs:
+  sync_with_rename:
+    target_table: customers
+    id_mapping:
+      csv_column: customer_id
+      db_column: id
+    columns:
+      - csv_column: first_name
+        db_column: fname
+      - csv_column: last_name
+        db_column: lname
+      # Note: other CSV columns like 'internal_notes' won't be synced
+```
+
+### Command Line Interface
+
+```bash
+# Basic usage
+data-sync sync <csv_file> <config_file> <job_name> --db-url <connection_string>
+
+# Using environment variable for database
+export DATABASE_URL="postgresql://localhost/mydb"
+data-sync sync data.csv config.yaml my_job
+
+# Show help
 data-sync --help
+data-sync sync --help
 
 # Show version
 data-sync --version
-
-# Sync a CSV file
-data-sync sync /path/to/data.csv
-
-# Sync a CDF science file
-data-sync sync /path/to/science.cdf
 ```
 
-### Examples
+### Key Features
+
+#### Idempotent Operations
+
+Running the sync multiple times is safe - it uses PostgreSQL's `INSERT ... ON CONFLICT DO UPDATE` (upsert):
 
 ```bash
-# Sync a CSV file to the database
-data-sync sync ./data/measurements.csv
+# First run: inserts 3 rows
+data-sync sync users.csv config.yaml sync_users
 
-# Sync a CDF file to the database
-data-sync sync ./data/experiment_001.cdf
+# Second run: updates existing rows, no duplicates
+data-sync sync users.csv config.yaml sync_users
 ```
 
-## Supported File Types
+#### Column Mapping
 
-- **CSV**: Comma-separated values files
-- **CDF**: Common Data Format science files
+Map CSV columns to different database column names:
+
+```yaml
+id_mapping:
+  csv_column: user_id    # Column name in CSV
+  db_column: id          # Column name in database
+
+columns:
+  - csv_column: name
+    db_column: full_name  # Renamed in database
+```
+
+#### Selective Syncing
+
+Only sync specific columns, ignoring others in the CSV:
+
+```csv
+user_id,name,email,internal_notes
+1,Alice,alice@example.com,Do not sync this column
+```
+
+```yaml
+columns:
+  - csv_column: name
+    db_column: full_name
+  - csv_column: email
+    db_column: email
+  # internal_notes column is NOT synced
+```
 
 ## Development
 
@@ -80,18 +192,20 @@ pip install -e ".[dev]"
 ### Running Tests
 
 ```bash
-# Run all tests
-pytest
+# Run unit tests (no Docker required)
+pytest tests/test_cli.py tests/test_config.py -v
+
+# Run ALL tests including integration tests (requires Docker)
+pytest -v
 
 # Run with coverage
 pytest --cov=data_sync
 
 # Run specific test file
-pytest tests/test_core.py
-
-# Run with verbose output
-pytest -v
+pytest tests/test_config.py -v
 ```
+
+**Note:** Integration tests (`test_database_integration.py`) require Docker to be running, as they use testcontainers to spin up a real PostgreSQL instance.
 
 ### Code Quality
 
@@ -115,20 +229,22 @@ mypy src/data_sync
 data-sync/
 ├── .github/
 │   └── workflows/
-│       └── ci.yml          # GitHub Actions CI/CD
+│       └── ci.yml                    # GitHub Actions CI/CD
 ├── src/
 │   └── data_sync/
-│       ├── __init__.py     # Package initialization
-│       ├── cli.py          # CLI commands
-│       └── core.py         # Core business logic
+│       ├── __init__.py               # Package initialization
+│       ├── cli.py                    # CLI commands
+│       ├── config.py                 # YAML configuration parser
+│       └── database.py               # PostgreSQL operations
 ├── tests/
 │   ├── __init__.py
-│   ├── conftest.py         # Pytest configuration and fixtures
-│   ├── test_cli.py         # CLI tests (10 tests)
-│   └── test_core.py        # Core logic tests (12 tests)
-├── pyproject.toml          # Project configuration
-├── README.md               # This file
-└── LICENSE                 # License file
+│   ├── conftest.py                   # Pytest configuration
+│   ├── test_cli.py                   # CLI tests (8 tests)
+│   ├── test_config.py                # Config parser tests (7 tests)
+│   └── test_database_integration.py  # Integration tests (4 tests, requires Docker)
+├── pyproject.toml                    # Project configuration
+├── README.md                         # This file
+└── LICENSE                           # License file
 ```
 
 ## Configuration
@@ -136,9 +252,10 @@ data-sync/
 The project uses `pyproject.toml` for all configuration:
 
 - **Build system**: Hatchling
-- **Testing**: pytest with coverage
+- **Testing**: pytest with coverage, testcontainers for integration tests
 - **Linting**: Ruff
 - **Type checking**: MyPy
+- **Dependencies**: PyYAML, psycopg3, Click, Rich
 
 ## Contributing
 
@@ -161,14 +278,16 @@ This project prioritizes:
 - **High coverage**: Aim for >90% code coverage
 - **Meaningful tests**: Test behavior, not implementation
 - **Fast tests**: Keep test suite fast for quick feedback
+- **Real integration tests**: Use testcontainers for authentic database testing
 - **Readable tests**: Tests serve as documentation
 
 ## Test Results
 
 Current test suite:
-- 22 tests total
+- 15 unit tests (CLI, config parsing)
+- 4 integration tests (real PostgreSQL via testcontainers)
 - 100% passing
-- 93% code coverage
+- Tests verify idempotency, column mapping, and error handling
 
 ## License
 
@@ -180,17 +299,24 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [Rich](https://rich.readthedocs.io/) - Beautiful terminal output
 - [pytest](https://pytest.org/) - Testing framework
 - [Ruff](https://github.com/astral-sh/ruff) - Fast Python linter
+- [psycopg3](https://www.psycopg.org/psycopg3/) - PostgreSQL adapter
+- [PyYAML](https://pyyaml.org/) - YAML parser
+- [testcontainers](https://github.com/testcontainers/testcontainers-python) - Integration testing with real services
 
 ## Roadmap
 
-- [ ] Implement CSV file parsing and database insertion
-- [ ] Implement CDF file parsing and database insertion
-- [ ] Add PostgreSQL connection configuration
-- [ ] Add data validation and transformation
-- [ ] Add support for batch processing
+- [x] YAML configuration support
+- [x] Column mapping and renaming
+- [x] Selective column syncing
+- [x] Idempotent upsert operations
+- [x] Integration tests with real PostgreSQL
+- [ ] Support for CDF science files
+- [ ] Data validation and transformation
+- [ ] Support for batch processing multiple files
 - [ ] Add progress bars for large files
-- [ ] Create comprehensive documentation site
-- [ ] Add integration tests with PostgreSQL
+- [ ] Transaction management and rollback
+- [ ] Schema migration support
+- [ ] Dry-run mode
 
 ## Support
 
