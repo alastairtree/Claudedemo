@@ -1,9 +1,11 @@
 """Tests for CLI commands."""
 
+from pathlib import Path
+
 from click.testing import CliRunner
 
-from myapp import __version__
-from myapp.cli import main
+from data_sync import __version__
+from data_sync.cli import main
 
 
 class TestCLIBasics:
@@ -13,7 +15,7 @@ class TestCLIBasics:
         """Test main command group shows help."""
         result = cli_runner.invoke(main, ["--help"])
         assert result.exit_code == 0
-        assert "A robust CLI application" in result.output
+        assert "Sync CSV and CDF" in result.output
 
     def test_version_option(self, cli_runner: CliRunner) -> None:
         """Test --version flag displays version."""
@@ -22,107 +24,73 @@ class TestCLIBasics:
         assert __version__ in result.output
 
 
-class TestGreetCommand:
-    """Test suite for greet command."""
+class TestSyncCommand:
+    """Test suite for sync command."""
 
-    def test_greet_basic(self, cli_runner: CliRunner) -> None:
-        """Test basic greet command."""
-        result = cli_runner.invoke(main, ["greet", "world"])
+    def test_sync_help(self, cli_runner: CliRunner) -> None:
+        """Test sync command help."""
+        result = cli_runner.invoke(main, ["sync", "--help"])
         assert result.exit_code == 0
-        assert "Hello, world!" in result.output
+        assert "Sync a CSV or CDF file" in result.output
+        assert "FILE_PATH" in result.output
 
-    def test_greet_uppercase(self, cli_runner: CliRunner) -> None:
-        """Test greet with uppercase flag."""
-        result = cli_runner.invoke(main, ["greet", "world", "--uppercase"])
+    def test_sync_csv_file(self, cli_runner: CliRunner, tmp_path: Path) -> None:
+        """Test syncing a CSV file."""
+        csv_file = tmp_path / "test.csv"
+        csv_file.touch()
+
+        result = cli_runner.invoke(main, ["sync", str(csv_file)])
         assert result.exit_code == 0
-        assert "HELLO, WORLD!" in result.output
+        assert "Successfully synced" in result.output
+        assert str(csv_file) in result.output
 
-    def test_greet_uppercase_short_flag(self, cli_runner: CliRunner) -> None:
-        """Test greet with uppercase short flag."""
-        result = cli_runner.invoke(main, ["greet", "world", "-u"])
+    def test_sync_cdf_file(self, cli_runner: CliRunner, tmp_path: Path) -> None:
+        """Test syncing a CDF file."""
+        cdf_file = tmp_path / "science.cdf"
+        cdf_file.touch()
+
+        result = cli_runner.invoke(main, ["sync", str(cdf_file)])
         assert result.exit_code == 0
-        assert "HELLO, WORLD!" in result.output
+        assert "Successfully synced" in result.output
+        assert str(cdf_file) in result.output
 
-    def test_greet_repeat(self, cli_runner: CliRunner) -> None:
-        """Test greet with repeat option."""
-        result = cli_runner.invoke(main, ["greet", "test", "--repeat", "2"])
-        assert result.exit_code == 0
-        assert "Hello, test! Hello, test!" in result.output
-
-    def test_greet_repeat_short_flag(self, cli_runner: CliRunner) -> None:
-        """Test greet with repeat short flag."""
-        result = cli_runner.invoke(main, ["greet", "test", "-r", "3"])
-        assert result.exit_code == 0
-        assert result.output.count("Hello, test!") == 3
-
-    def test_greet_combined_options(self, cli_runner: CliRunner) -> None:
-        """Test greet with multiple options combined."""
-        result = cli_runner.invoke(main, ["greet", "cli", "-u", "-r", "2"])
-        assert result.exit_code == 0
-        assert "HELLO, CLI!" in result.output
-        assert result.output.count("HELLO, CLI!") == 2
-
-    def test_greet_missing_argument(self, cli_runner: CliRunner) -> None:
-        """Test greet without required argument fails."""
-        result = cli_runner.invoke(main, ["greet"])
+    def test_sync_missing_argument(self, cli_runner: CliRunner) -> None:
+        """Test sync without required argument fails."""
+        result = cli_runner.invoke(main, ["sync"])
         assert result.exit_code != 0
         assert "Missing argument" in result.output
 
-    def test_greet_help(self, cli_runner: CliRunner) -> None:
-        """Test greet command help."""
-        result = cli_runner.invoke(main, ["greet", "--help"])
-        assert result.exit_code == 0
-        assert "Greet with the provided INPUT_TEXT" in result.output
-        assert "--uppercase" in result.output
-        assert "--repeat" in result.output
+    def test_sync_nonexistent_file(self, cli_runner: CliRunner, tmp_path: Path) -> None:
+        """Test sync with nonexistent file fails."""
+        nonexistent = tmp_path / "doesnotexist.csv"
 
-
-class TestInfoCommand:
-    """Test suite for info command."""
-
-    def test_info_default(self, cli_runner: CliRunner) -> None:
-        """Test info command with default format."""
-        result = cli_runner.invoke(main, ["info"])
-        assert result.exit_code == 0
-        assert "Name:" in result.output
-        assert "myapp" in result.output
-        assert "Version:" in result.output
-        assert __version__ in result.output
-
-    def test_info_text_format(self, cli_runner: CliRunner) -> None:
-        """Test info command with explicit text format."""
-        result = cli_runner.invoke(main, ["info", "--format", "text"])
-        assert result.exit_code == 0
-        assert "myapp" in result.output
-
-    def test_info_json_format(self, cli_runner: CliRunner) -> None:
-        """Test info command with JSON format."""
-        result = cli_runner.invoke(main, ["info", "--format", "json"])
-        assert result.exit_code == 0
-        assert '"name": "myapp"' in result.output
-        assert '"version":' in result.output
-
-    def test_info_yaml_format(self, cli_runner: CliRunner) -> None:
-        """Test info command with YAML format (not yet implemented)."""
-        result = cli_runner.invoke(main, ["info", "--format", "yaml"])
-        assert result.exit_code == 0
-        assert "not yet implemented" in result.output.lower()
-
-    def test_info_format_short_flag(self, cli_runner: CliRunner) -> None:
-        """Test info with format short flag."""
-        result = cli_runner.invoke(main, ["info", "-f", "json"])
-        assert result.exit_code == 0
-        assert '"name": "myapp"' in result.output
-
-    def test_info_invalid_format(self, cli_runner: CliRunner) -> None:
-        """Test info with invalid format fails."""
-        result = cli_runner.invoke(main, ["info", "--format", "invalid"])
+        result = cli_runner.invoke(main, ["sync", str(nonexistent)])
         assert result.exit_code != 0
-        assert "Invalid value" in result.output
+        # Click validates path existence before our code runs
 
-    def test_info_help(self, cli_runner: CliRunner) -> None:
-        """Test info command help."""
-        result = cli_runner.invoke(main, ["info", "--help"])
+    def test_sync_unsupported_file(self, cli_runner: CliRunner, tmp_path: Path) -> None:
+        """Test sync with unsupported file type fails."""
+        txt_file = tmp_path / "data.txt"
+        txt_file.touch()
+
+        result = cli_runner.invoke(main, ["sync", str(txt_file)])
+        assert result.exit_code == 1
+        assert "Error" in result.output
+
+    def test_sync_shows_records_processed(self, cli_runner: CliRunner, tmp_path: Path) -> None:
+        """Test sync shows number of records processed."""
+        csv_file = tmp_path / "data.csv"
+        csv_file.touch()
+
+        result = cli_runner.invoke(main, ["sync", str(csv_file)])
         assert result.exit_code == 0
-        assert "Display application information" in result.output
-        assert "--format" in result.output
+        assert "Records processed" in result.output
+
+    def test_sync_with_uppercase_extension(self, cli_runner: CliRunner, tmp_path: Path) -> None:
+        """Test sync handles uppercase file extensions."""
+        csv_file = tmp_path / "data.CSV"
+        csv_file.touch()
+
+        result = cli_runner.invoke(main, ["sync", str(csv_file)])
+        assert result.exit_code == 0
+        assert "Successfully synced" in result.output
