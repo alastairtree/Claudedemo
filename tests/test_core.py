@@ -61,7 +61,7 @@ class TestSyncFile:
 
         result = sync_file(csv_file)
 
-        assert result["file_path"] == str(csv_file)
+        assert Path(result["file_path"]) == csv_file
         assert result["file_type"] == "csv"
         assert result["records_processed"] == 0  # Placeholder returns 0
 
@@ -72,7 +72,7 @@ class TestSyncFile:
 
         result = sync_file(cdf_file)
 
-        assert result["file_path"] == str(cdf_file)
+        assert Path(result["file_path"]) == cdf_file
         assert result["file_type"] == "cdf"
         assert result["records_processed"] == 0  # Placeholder returns 0
 
