@@ -26,7 +26,7 @@ Sync CSV and CDF science files into PostgreSQL database using configuration-base
 ### Prerequisites
 
 - Python 3.11 or higher
-- pip
+- [uv](https://docs.astral.sh/uv/) (recommended) or pip
 - PostgreSQL database
 - Docker (for running integration tests)
 
@@ -37,9 +37,27 @@ Sync CSV and CDF science files into PostgreSQL database using configuration-base
 git clone https://github.com/yourusername/data-sync.git
 cd data-sync
 
-# Install in development mode
+# Install with uv (recommended)
+uv sync --all-extras
+
+# OR install with pip
 pip install -e ".[dev]"
 ```
+
+### VSCode Dev Container (Recommended)
+
+For the best development experience, open the project in VSCode with the Dev Containers extension:
+
+1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop)
+2. Install the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
+3. Open the project folder in VSCode
+4. Click "Reopen in Container" when prompted (or use Command Palette: "Dev Containers: Reopen in Container")
+
+The devcontainer includes:
+- Python 3.11 with all dependencies pre-installed via uv
+- Docker-in-Docker for running integration tests
+- VSCode extensions for Python, Ruff, and Docker
+- Proper test and linting configuration
 
 ## Usage
 
@@ -175,24 +193,30 @@ columns:
 ### Setup Development Environment
 
 ```bash
-# Install with development dependencies
+# With uv (recommended)
+uv sync --all-extras
+
+# OR with pip
 pip install -e ".[dev]"
 ```
 
 ### Running Tests
 
 ```bash
-# Run unit tests (no Docker required)
-pytest tests/test_cli.py tests/test_config.py -v
+# With uv (recommended)
+uv run pytest -v
 
-# Run ALL tests including integration tests (requires Docker)
+# OR with direct pytest (if using pip)
 pytest -v
 
+# Run unit tests only (no Docker required)
+uv run pytest tests/test_cli.py tests/test_config.py -v
+
 # Run with coverage
-pytest --cov=data_sync
+uv run pytest --cov=data_sync
 
 # Run specific test file
-pytest tests/test_config.py -v
+uv run pytest tests/test_config.py -v
 ```
 
 **Note:** Integration tests (`test_database_integration.py`) require Docker to be running, as they use testcontainers to spin up a real PostgreSQL instance.
@@ -200,16 +224,16 @@ pytest tests/test_config.py -v
 ### Code Quality
 
 ```bash
-# Format code
+# With uv (recommended)
+uv run ruff format .    # Format code
+uv run ruff check .     # Lint code
+uv run ruff check --fix .  # Fix linting issues
+uv run mypy src/data_sync  # Type checking
+
+# OR directly (if using pip)
 ruff format .
-
-# Lint code
 ruff check .
-
-# Fix linting issues automatically
 ruff check --fix .
-
-# Type checking
 mypy src/data_sync
 ```
 

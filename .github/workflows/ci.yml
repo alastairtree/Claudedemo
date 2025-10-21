@@ -16,21 +16,21 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: 'pip'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+        run: uv sync --all-extras
 
       - name: Run ruff format check
-        run: ruff format --check .
+        run: uv run ruff format --check .
 
       - name: Run ruff lint
-        run: ruff check .
+        run: uv run ruff check .
 
       - name: Run mypy type checking
-        run: mypy src/data_sync --install-types --non-interactive || true
+        run: uv run mypy src/data_sync --install-types --non-interactive || true
         continue-on-error: true
 
   test:
@@ -60,15 +60,15 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+        run: uv sync --all-extras
 
-      - name: Run tests with coverage (unit tests only)
-        run: pytest --ignore=tests/test_database_integration.py
+      - name: Run tests with coverage
+        run: uv run pytest
 
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
@@ -90,10 +90,11 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
       - name: Install build dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install build hatchling
+        run: uv pip install --system build hatchling
 
       - name: Build package
         run: python -m build
