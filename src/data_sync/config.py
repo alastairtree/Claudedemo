@@ -10,15 +10,17 @@ import yaml
 class ColumnMapping:
     """Mapping between CSV and database columns."""
 
-    def __init__(self, csv_column: str, db_column: str) -> None:
+    def __init__(self, csv_column: str, db_column: str, data_type: str | None = None) -> None:
         """Initialize column mapping.
 
         Args:
             csv_column: Name of the column in the CSV file
             db_column: Name of the column in the database
+            data_type: Optional data type (integer, float, date, datetime, text, varchar(N))
         """
         self.csv_column = csv_column
         self.db_column = db_column
+        self.data_type = data_type
 
 
 class DateMapping:
@@ -127,8 +129,14 @@ class SyncConfig:
                 id_mapping:
                   user_id: id
                 columns:
-                  name: full_name
+                  name: full_name  # Simple format
                   email: email_address
+                  age:
+                    db_column: user_age
+                    type: integer
+                  salary:
+                    db_column: monthly_salary
+                    type: float
                 date_mapping:
                   filename_regex: '(\d{4}-\d{2}-\d{2})'
                   db_column: sync_date
@@ -147,6 +155,42 @@ class SyncConfig:
             jobs[job_name] = cls._parse_job(job_name, job_data)
 
         return cls(jobs=jobs)
+
+    @staticmethod
+    def _parse_column_mapping(csv_col: str, value: Any, job_name: str) -> ColumnMapping:
+        """Parse a column mapping from config value.
+
+        Supports two formats:
+        1. Simple: csv_column: db_column
+        2. Extended: csv_column: {db_column: name, type: data_type}
+
+        Args:
+            csv_col: CSV column name
+            value: Either a string (db_column) or dict with db_column and optional type
+            job_name: Job name (for error messages)
+
+        Returns:
+            ColumnMapping instance
+
+        Raises:
+            ValueError: If mapping format is invalid
+        """
+        if isinstance(value, str):
+            # Simple format: csv_column: db_column
+            return ColumnMapping(csv_column=csv_col, db_column=value)
+        elif isinstance(value, dict):
+            # Extended format: csv_column: {db_column: name, type: data_type}
+            if "db_column" not in value:
+                raise ValueError(
+                    f"Job '{job_name}' column '{csv_col}' extended mapping must have 'db_column'"
+                )
+            db_column = value["db_column"]
+            data_type = value.get("type")  # Optional
+            return ColumnMapping(csv_column=csv_col, db_column=db_column, data_type=data_type)
+        else:
+            raise ValueError(
+                f"Job '{job_name}' column '{csv_col}' must be string or dict, got {type(value)}"
+            )
 
     @staticmethod
     def _parse_job(name: str, job_data: dict[str, Any]) -> SyncJob:
@@ -168,7 +212,7 @@ class SyncConfig:
         if "id_mapping" not in job_data:
             raise ValueError(f"Job '{name}' missing 'id_mapping'")
 
-        # Parse id_mapping as a dict: {csv_column: db_column}
+        # Parse id_mapping as a dict: {csv_column: db_column} or {csv_column: {db_column: x, type: y}}
         id_data = job_data["id_mapping"]
         if not isinstance(id_data, dict):
             raise ValueError(f"Job '{name}' id_mapping must be a dictionary")
@@ -178,18 +222,18 @@ class SyncConfig:
                 f"Job '{name}' id_mapping must have exactly one mapping (source: destination)"
             )
 
-        csv_col, db_col = next(iter(id_data.items()))
-        id_mapping = ColumnMapping(csv_column=csv_col, db_column=db_col)
+        csv_col, value = next(iter(id_data.items()))
+        id_mapping = SyncConfig._parse_column_mapping(csv_col, value, name)
 
-        # Parse columns as a dict: {csv_column: db_column}
+        # Parse columns as a dict: {csv_column: db_column} or {csv_column: {db_column: x, type: y}}
         columns = []
         if "columns" in job_data and job_data["columns"]:
             col_data = job_data["columns"]
             if not isinstance(col_data, dict):
                 raise ValueError(f"Job '{name}' columns must be a dictionary")
 
-            for csv_col, db_col in col_data.items():
-                columns.append(ColumnMapping(csv_column=csv_col, db_column=db_col))
+            for csv_col, value in col_data.items():
+                columns.append(SyncConfig._parse_column_mapping(csv_col, value, name))
 
         # Parse optional date_mapping
         date_mapping = None
