@@ -1,5 +1,7 @@
 """Database operations for data_sync."""
 
+from __future__ import annotations
+
 import csv
 import sqlite3
 from pathlib import Path

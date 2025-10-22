@@ -84,6 +84,40 @@ class TestSuggestIdColumn:
         columns = ["Name", "ID", "Value"]
         assert suggest_id_column(columns) == "ID"
 
+    def test_custom_matchers(self) -> None:
+        """Test using custom ID column matchers."""
+        columns = ["customer_id", "name", "value"]
+        matchers = ["customer_id", "account_id"]
+        assert suggest_id_column(columns, matchers) == "customer_id"
+
+    def test_custom_matchers_priority(self) -> None:
+        """Test that custom matchers respect priority order."""
+        columns = ["account_id", "customer_id", "name"]
+        matchers = ["customer_id", "account_id"]
+        # customer_id should be chosen because it appears first in matchers
+        assert suggest_id_column(columns, matchers) == "customer_id"
+
+    def test_custom_matchers_no_match(self) -> None:
+        """Test custom matchers fallback to first column when no match."""
+        columns = ["name", "value", "description"]
+        matchers = ["customer_id", "account_id"]
+        # No match found, should default to first column
+        assert suggest_id_column(columns, matchers) == "name"
+
+    def test_custom_matchers_no_suffix_check(self) -> None:
+        """Test that custom matchers don't check for _id suffix."""
+        columns = ["name", "user_id", "value"]
+        matchers = ["customer_id"]
+        # With custom matchers, _id suffix shouldn't be checked
+        # Should default to first column since customer_id not found
+        assert suggest_id_column(columns, matchers) == "name"
+
+    def test_default_matchers_still_check_suffix(self) -> None:
+        """Test that default matchers still check for _id suffix."""
+        columns = ["name", "user_id", "value"]
+        # No custom matchers, should use default logic including _id suffix
+        assert suggest_id_column(columns) == "user_id"
+
 
 class TestAnalyzeCsvTypes:
     """Test suite for analyze_csv_types function."""

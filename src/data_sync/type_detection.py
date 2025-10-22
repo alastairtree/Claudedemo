@@ -122,28 +122,31 @@ def analyze_csv_types(csv_path: Path) -> dict[str, str]:
     return {col: detect_column_type(values) for col, values in column_values.items()}
 
 
-def suggest_id_column(columns: list[str]) -> str:
+def suggest_id_column(columns: list[str], matchers: list[str] | None = None) -> str:
     """Suggest which column should be the ID column.
 
     Args:
         columns: List of column names
+        matchers: Optional list of column name patterns to match (in priority order).
+                 If None, uses default patterns: ['id', 'uuid', 'key', 'code']
 
     Returns:
         Name of suggested ID column
     """
-    # Common ID column names (in priority order)
-    id_candidates = ["id", "uuid", "key", "code"]
+    # Use provided matchers or default ones
+    id_candidates = ["id", "uuid", "key", "code"] if matchers is None else matchers
 
     # Check for exact matches
     lower_columns = {col.lower(): col for col in columns}
     for candidate in id_candidates:
-        if candidate in lower_columns:
-            return lower_columns[candidate]
+        if candidate.lower() in lower_columns:
+            return lower_columns[candidate.lower()]
 
-    # Check for columns ending with _id
-    for col in columns:
-        if col.lower().endswith("_id"):
-            return col
+    # Check for columns ending with _id (only if using default matchers)
+    if matchers is None:
+        for col in columns:
+            if col.lower().endswith("_id"):
+                return col
 
     # Default to first column
     return columns[0] if columns else "id"

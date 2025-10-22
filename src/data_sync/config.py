@@ -1,5 +1,7 @@
 """Configuration file handling for data_sync."""
 
+from __future__ import annotations
+
 import re
 from pathlib import Path
 from typing import Any
@@ -89,13 +91,18 @@ class SyncJob:
 class SyncConfig:
     """Configuration for data synchronization."""
 
-    def __init__(self, jobs: dict[str, SyncJob]) -> None:
+    def __init__(
+        self, jobs: dict[str, SyncJob], id_column_matchers: list[str] | None = None
+    ) -> None:
         """Initialize sync configuration.
 
         Args:
             jobs: Dictionary of job name to SyncJob
+            id_column_matchers: Optional list of column name patterns to match as ID columns
+                               (e.g., ['id', 'uuid', 'key']). If None, uses default patterns.
         """
         self.jobs = jobs
+        self.id_column_matchers = id_column_matchers
 
     def get_job(self, name: str) -> SyncJob | None:
         """Get a job by name.
@@ -123,6 +130,10 @@ class SyncConfig:
             ValueError: If config file is invalid
 
         Example YAML structure:
+            id_column_matchers:  # Optional, root-level config
+              - id
+              - uuid
+              - key
             jobs:
               my_job:
                 target_table: users
@@ -150,11 +161,16 @@ class SyncConfig:
         if not data or "jobs" not in data:
             raise ValueError("Config file must contain 'jobs' section")
 
+        # Parse optional id_column_matchers
+        id_column_matchers = data.get("id_column_matchers")
+        if id_column_matchers is not None and not isinstance(id_column_matchers, list):
+            raise ValueError("id_column_matchers must be a list of strings")
+
         jobs = {}
         for job_name, job_data in data["jobs"].items():
             jobs[job_name] = cls._parse_job(job_name, job_data)
 
-        return cls(jobs=jobs)
+        return cls(jobs=jobs, id_column_matchers=id_column_matchers)
 
     @staticmethod
     def _parse_column_mapping(csv_col: str, value: Any, job_name: str) -> ColumnMapping:
@@ -316,7 +332,13 @@ class SyncConfig:
 
             jobs_dict[job_name] = job_dict
 
-        return {"jobs": jobs_dict}
+        result: dict[str, Any] = {"jobs": jobs_dict}
+
+        # Add id_column_matchers if present
+        if self.id_column_matchers is not None:
+            result["id_column_matchers"] = self.id_column_matchers
+
+        return result
 
     def save_to_yaml(self, config_path: Path) -> None:
         """Save configuration to a YAML file.

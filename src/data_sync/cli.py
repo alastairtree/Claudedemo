@@ -139,8 +139,11 @@ def prepare(file_path: Path, config: Path, job: str, force: bool) -> None:
         columns = list(column_types.keys())
         console.print(f"[dim]  Found {len(columns)} columns[/dim]")
 
-        # Suggest ID column
-        id_column = suggest_id_column(columns)
+        # Load or create config (need this early to get id_column_matchers)
+        sync_config = SyncConfig.from_yaml(config) if config.exists() else SyncConfig(jobs={})
+
+        # Suggest ID column using matchers from config if available
+        id_column = suggest_id_column(columns, sync_config.id_column_matchers)
         console.print(f"[dim]  Suggested ID column: {id_column}[/dim]")
 
         # Create column mappings for non-ID columns
@@ -159,9 +162,6 @@ def prepare(file_path: Path, config: Path, job: str, force: bool) -> None:
             id_mapping=ColumnMapping(csv_column=id_column, db_column="id"),
             columns=column_mappings if column_mappings else None,
         )
-
-        # Load or create config
-        sync_config = SyncConfig.from_yaml(config) if config.exists() else SyncConfig(jobs={})
 
         # Add or update job
         try:

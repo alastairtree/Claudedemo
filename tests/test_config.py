@@ -298,3 +298,81 @@ jobs:
 
         with pytest.raises(ValueError, match="must have 'db_column'"):
             SyncConfig.from_yaml(config_file)
+
+
+class TestIdColumnMatchers:
+    """Test suite for id_column_matchers configuration."""
+
+    def test_config_with_id_column_matchers(self, tmp_path: Path) -> None:
+        """Test loading config with id_column_matchers."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+id_column_matchers:
+  - customer_id
+  - account_id
+  - user_id
+jobs:
+  test_job:
+    target_table: users
+    id_mapping:
+      user_id: id
+    columns:
+      name: full_name
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+
+        assert config.id_column_matchers is not None
+        assert config.id_column_matchers == ["customer_id", "account_id", "user_id"]
+
+    def test_config_without_id_column_matchers(self, tmp_path: Path) -> None:
+        """Test loading config without id_column_matchers (uses defaults)."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: users
+    id_mapping:
+      user_id: id
+    columns:
+      name: full_name
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+
+        assert config.id_column_matchers is None
+
+    def test_config_invalid_id_column_matchers(self, tmp_path: Path) -> None:
+        """Test that non-list id_column_matchers raises error."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+id_column_matchers: "not a list"
+jobs:
+  test_job:
+    target_table: users
+    id_mapping:
+      user_id: id
+""")
+
+        with pytest.raises(ValueError, match="id_column_matchers must be a list"):
+            SyncConfig.from_yaml(config_file)
+
+    def test_save_config_with_id_column_matchers(self, tmp_path: Path) -> None:
+        """Test saving config with id_column_matchers."""
+        from data_sync.config import ColumnMapping, SyncJob
+
+        job = SyncJob(
+            name="test_job",
+            target_table="users",
+            id_mapping=ColumnMapping("user_id", "id"),
+            columns=[ColumnMapping("name", "full_name")],
+        )
+
+        config = SyncConfig(jobs={"test_job": job}, id_column_matchers=["custom_id", "record_id"])
+
+        config_file = tmp_path / "config.yaml"
+        config.save_to_yaml(config_file)
+
+        # Reload and verify
+        loaded_config = SyncConfig.from_yaml(config_file)
+        assert loaded_config.id_column_matchers == ["custom_id", "record_id"]
