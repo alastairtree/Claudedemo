@@ -59,6 +59,9 @@ addopts = [
 markers = [
     "integration: marks tests as integration tests (require Docker)",
 ]
+filterwarnings = [
+    "ignore::DeprecationWarning:testcontainers",
+]
 
 [tool.coverage.run]
 source = ["src/data_sync"]
