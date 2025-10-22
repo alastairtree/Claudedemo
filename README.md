@@ -11,9 +11,11 @@ Sync CSV and CDF science files into PostgreSQL database using configuration-base
 - **Configuration-Based**: Define sync jobs in YAML with column mappings
 - **Column Mapping**: Rename columns between CSV and database
 - **Selective Sync**: Choose which columns to sync or sync all
+- **Date-Based Syncing**: Extract dates from filenames and store in database
+- **Automatic Cleanup**: Delete stale records for specific dates after sync
 - **Idempotent Operations**: Safe to run multiple times, uses upsert
 - **Modern Python**: Built for Python 3.11+ with full type hints
-- **Robust Testing**: Comprehensive test suite with pytest (15 unit tests + 4 integration tests)
+- **Robust Testing**: Comprehensive test suite with pytest (23 unit tests + 7 integration tests)
 - **Real Database Testing**: Integration tests with PostgreSQL via testcontainers
 - **CLI Interface**: User-friendly command-line interface using Click
 - **Rich Output**: Beautiful terminal output with Rich library
@@ -127,6 +129,27 @@ jobs:
       # Note: other CSV columns like 'internal_notes' won't be synced
 ```
 
+#### Example: Date-Based Sync with Automatic Cleanup
+
+```yaml
+jobs:
+  daily_sales_sync:
+    target_table: sales
+    id_mapping:
+      sale_id: id
+    date_mapping:
+      filename_regex: '(\d{4}-\d{2}-\d{2})'  # Extract YYYY-MM-DD from filename
+      db_column: sync_date                    # Store date in this column
+    columns:
+      product_id: product_id
+      amount: amount
+```
+
+This configuration extracts the date from the filename (e.g., `sales_2024-01-15.csv` → `2024-01-15`) and:
+1. Stores the date in the `sync_date` column for all synced rows
+2. Automatically deletes stale records (same date, but IDs not in current CSV)
+3. Allows safe incremental syncs where you can replace all data for a specific date
+
 ### Command Line Interface
 
 ```bash
@@ -187,6 +210,40 @@ columns:
   email: email
   # internal_notes column is NOT synced
 ```
+
+#### Date-Based Syncing with Automatic Cleanup
+
+Extract dates from filenames and automatically clean up stale records:
+
+```yaml
+date_mapping:
+  filename_regex: '(\d{4}-\d{2}-\d{2})'  # Regex to extract date
+  db_column: sync_date                    # Column to store date
+```
+
+**How it works:**
+1. **Date Extraction**: Extracts date from filename using regex pattern
+2. **Date Storage**: Stores the extracted date in all synced rows
+3. **Automatic Cleanup**: After syncing, deletes records with the same date whose IDs are no longer in the CSV
+
+**Example workflow:**
+
+```bash
+# Day 1: Sync sales data for 2024-01-15
+data-sync sync sales_2024-01-15.csv config.yaml daily_sales
+# Result: Inserts 100 sales records with sync_date = '2024-01-15'
+
+# Day 2: Re-sync same date with updated data (only 95 records)
+data-sync sync sales_2024-01-15_corrected.csv config.yaml daily_sales
+# Result: Updates existing 95 records, deletes 5 stale records
+#         Other dates in database remain unchanged
+```
+
+**Benefits:**
+- Safe incremental syncs for time-series data
+- Automatic cleanup of removed records for specific dates
+- Preserves data from other dates
+- Perfect for daily/weekly/monthly data updates
 
 ## Development
 
@@ -254,8 +311,8 @@ data-sync/
 │   ├── __init__.py
 │   ├── conftest.py                   # Pytest configuration
 │   ├── test_cli.py                   # CLI tests (8 tests)
-│   ├── test_config.py                # Config parser tests (7 tests)
-│   └── test_database_integration.py  # Integration tests (4 tests, requires Docker)
+│   ├── test_config.py                # Config parser and date extraction tests (15 tests)
+│   └── test_database_integration.py  # Integration tests (7 tests, requires Docker)
 ├── pyproject.toml                    # Project configuration
 ├── README.md                         # This file
 └── LICENSE                           # License file
@@ -298,10 +355,10 @@ This project prioritizes:
 ## Test Results
 
 Current test suite:
-- 15 unit tests (CLI, config parsing)
-- 4 integration tests (real PostgreSQL via testcontainers)
+- 23 unit tests (CLI, config parsing, date extraction)
+- 7 integration tests (real PostgreSQL via testcontainers)
 - 100% passing
-- Tests verify idempotency, column mapping, and error handling
+- Tests verify idempotency, column mapping, date-based syncing, stale record cleanup, and error handling
 
 ## License
 

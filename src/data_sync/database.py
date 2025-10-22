@@ -87,12 +87,60 @@ class DatabaseConnection:
             cur.execute(insert_query, values)
         self.conn.commit()
 
-    def sync_csv_file(self, csv_path: Path, job: SyncJob) -> int:
+    def delete_stale_records(
+        self,
+        table_name: str,
+        id_column: str,
+        date_column: str,
+        sync_date: str,
+        current_ids: set[str],
+    ) -> int:
+        """Delete records with matching date but IDs not in current set.
+
+        This allows safe removal of records that were previously synced
+        but are no longer in the current CSV file for this date.
+
+        Args:
+            table_name: Name of the table
+            id_column: Name of the ID column
+            date_column: Name of the date column
+            sync_date: The date value to match
+            current_ids: Set of IDs that are in the current CSV
+
+        Returns:
+            Number of records deleted
+        """
+        if not self.conn:
+            raise RuntimeError("Database connection not established")
+
+        if not current_ids:
+            # If no current IDs, don't delete anything
+            return 0
+
+        # Build DELETE query: DELETE FROM table WHERE date = ? AND id NOT IN (?, ?, ...)
+        delete_query = sql.SQL("DELETE FROM {} WHERE {} = %s AND {} NOT IN ({})").format(
+            sql.Identifier(table_name),
+            sql.Identifier(date_column),
+            sql.Identifier(id_column),
+            sql.SQL(", ").join(sql.Placeholder() * len(current_ids)),
+        )
+
+        params = [sync_date] + list(current_ids)
+
+        with self.conn.cursor() as cur:
+            cur.execute(delete_query, params)
+            deleted_count = cur.rowcount
+        self.conn.commit()
+
+        return deleted_count
+
+    def sync_csv_file(self, csv_path: Path, job: SyncJob, sync_date: str | None = None) -> int:
         """Sync a CSV file to the database using job configuration.
 
         Args:
             csv_path: Path to CSV file
             job: SyncJob configuration
+            sync_date: Optional date value to store in date column for all rows
 
         Returns:
             Number of rows synced
@@ -105,6 +153,7 @@ class DatabaseConnection:
             raise FileNotFoundError(f"CSV file not found: {csv_path}")
 
         rows_synced = 0
+        synced_ids = set()
 
         with open(csv_path, encoding="utf-8") as f:
             reader = csv.DictReader(f)
@@ -137,6 +186,10 @@ class DatabaseConnection:
                 if col_mapping.db_column != job.id_mapping.db_column:
                     columns_def[col_mapping.db_column] = "TEXT"
 
+            # Add date column if date_mapping is configured
+            if job.date_mapping:
+                columns_def[job.date_mapping.db_column] = "TEXT"
+
             self.create_table_if_not_exists(job.target_table, columns_def)
 
             # Process each row
@@ -146,22 +199,42 @@ class DatabaseConnection:
                     if col_mapping.csv_column in row:
                         row_data[col_mapping.db_column] = row[col_mapping.csv_column]
 
+                # Add sync date if configured
+                if job.date_mapping and sync_date:
+                    row_data[job.date_mapping.db_column] = sync_date
+
                 self.upsert_row(job.target_table, job.id_mapping.db_column, row_data)
+
+                # Track synced IDs for cleanup
+                synced_ids.add(row_data[job.id_mapping.db_column])
                 rows_synced += 1
+
+        # Clean up stale records if date_mapping is configured
+        if job.date_mapping and sync_date:
+            self.delete_stale_records(
+                job.target_table,
+                job.id_mapping.db_column,
+                job.date_mapping.db_column,
+                sync_date,
+                synced_ids,
+            )
 
         return rows_synced
 
 
-def sync_csv_to_postgres(csv_path: Path, job: SyncJob, db_connection_string: str) -> int:
+def sync_csv_to_postgres(
+    csv_path: Path, job: SyncJob, db_connection_string: str, sync_date: str | None = None
+) -> int:
     """Sync a CSV file to PostgreSQL database.
 
     Args:
         csv_path: Path to the CSV file
         job: SyncJob configuration
         db_connection_string: PostgreSQL connection string
+        sync_date: Optional date value to store in date column for all rows
 
     Returns:
         Number of rows synced
     """
     with DatabaseConnection(db_connection_string) as db:
-        return db.sync_csv_file(csv_path, job)
+        return db.sync_csv_file(csv_path, job, sync_date)
