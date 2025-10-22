@@ -1,6 +1,7 @@
 """Integration tests for database synchronization with real Postgres."""
 
 import csv
+import os
 from pathlib import Path
 
 import psycopg
@@ -11,9 +12,28 @@ from data_sync.config import SyncConfig
 from data_sync.database import DatabaseConnection, sync_csv_to_postgres
 
 
+def _check_docker_available():
+    """Check if Docker is available."""
+    try:
+        import docker
+        client = docker.from_env()
+        client.ping()
+        return True
+    except Exception:
+        return False
+
+
 @pytest.fixture(scope="module")
 def postgres_container():
     """Provide a PostgreSQL test container."""
+    # Check if Docker is available
+    if not _check_docker_available():
+        # If we're in CI, fail the test (Docker should be available)
+        if os.getenv("CI"):
+            pytest.fail("Docker is not available in CI environment")
+        # If we're running locally, skip the test
+        pytest.skip("Docker is not available - skipping integration tests")
+
     with PostgresContainer("postgres:16-alpine") as postgres:
         yield postgres
 
