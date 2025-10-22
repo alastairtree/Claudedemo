@@ -312,8 +312,17 @@ jobs:
         assert "would be inserted/updated" in result.output
         assert "no changes made to database" in result.output
 
-        # Verify database was not modified (table should not exist)
-        assert not db_file.exists()
+        # Verify no tables were created (connection may exist for SQLite)
+        if db_file.exists():
+            import sqlite3
+
+            conn = sqlite3.connect(db_file)
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = cursor.fetchall()
+            cursor.close()
+            conn.close()
+            assert len(tables) == 0, "No tables should have been created during dry-run"
 
     def test_sync_without_dry_run_creates_data(self, cli_runner: CliRunner, tmp_path: Path) -> None:
         """Test that regular sync (without --dry-run) creates data."""
