@@ -199,3 +199,102 @@ class TestDateMapping:
 
         date = mapping.extract_date_from_filename("report_2024_01_15_final.csv")
         assert date == "2024_01_15"
+
+
+class TestColumnDataTypes:
+    """Test suite for column data types in config."""
+
+    def test_config_with_data_types(self, tmp_path: Path) -> None:
+        """Test config with explicit data types."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  typed_job:
+    target_table: users
+    id_mapping:
+      user_id: id
+    columns:
+      name: full_name
+      age:
+        db_column: user_age
+        type: integer
+      salary:
+        db_column: monthly_salary
+        type: float
+      birth_date:
+        db_column: dob
+        type: date
+      bio:
+        db_column: biography
+        type: text
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("typed_job")
+
+        assert job is not None
+        assert job.id_mapping.data_type is None  # ID has no explicit type
+        assert len(job.columns) == 5
+
+        # Check that data types are preserved
+        name_col = next(c for c in job.columns if c.csv_column == "name")
+        assert name_col.db_column == "full_name"
+        assert name_col.data_type is None  # Simple format, no type
+
+        age_col = next(c for c in job.columns if c.csv_column == "age")
+        assert age_col.db_column == "user_age"
+        assert age_col.data_type == "integer"
+
+        salary_col = next(c for c in job.columns if c.csv_column == "salary")
+        assert salary_col.db_column == "monthly_salary"
+        assert salary_col.data_type == "float"
+
+        date_col = next(c for c in job.columns if c.csv_column == "birth_date")
+        assert date_col.db_column == "dob"
+        assert date_col.data_type == "date"
+
+        bio_col = next(c for c in job.columns if c.csv_column == "bio")
+        assert bio_col.db_column == "biography"
+        assert bio_col.data_type == "text"
+
+    def test_extended_format_without_type(self, tmp_path: Path) -> None:
+        """Test extended format with db_column but no type."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: users
+    id_mapping:
+      user_id: id
+    columns:
+      name:
+        db_column: full_name
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_job")
+
+        assert job is not None
+        assert len(job.columns) == 1
+
+        name_col = job.columns[0]
+        assert name_col.csv_column == "name"
+        assert name_col.db_column == "full_name"
+        assert name_col.data_type is None
+
+    def test_invalid_extended_format(self, tmp_path: Path) -> None:
+        """Test that extended format without db_column raises error."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: users
+    id_mapping:
+      user_id: id
+    columns:
+      name:
+        type: text
+""")
+
+        with pytest.raises(ValueError, match="must have 'db_column'"):
+            SyncConfig.from_yaml(config_file)

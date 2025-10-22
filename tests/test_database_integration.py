@@ -443,3 +443,131 @@ jobs:
             ("2024-01-16",),
         )
         assert day2_count_result[0][0] == 2  # IDs 2 and 3
+
+    def test_sync_with_typed_columns(self, tmp_path: Path, db_url: str) -> None:
+        """Test syncing with explicit data types for columns."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(r"""
+jobs:
+  typed_data:
+    target_table: products
+    id_mapping:
+      product_id: id
+    columns:
+      name: product_name
+      price:
+        db_column: unit_price
+        type: float
+      stock:
+        db_column: quantity
+        type: integer
+      description:
+        db_column: desc
+        type: text
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("typed_data")
+
+        # Create CSV with sample data
+        csv_file = tmp_path / "products.csv"
+        with open(csv_file, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(
+                f, fieldnames=["product_id", "name", "price", "stock", "description"]
+            )
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "product_id": "1",
+                    "name": "Widget",
+                    "price": "19.99",
+                    "stock": "100",
+                    "description": "A useful widget",
+                }
+            )
+
+        sync_csv_to_postgres(csv_file, job, db_url)
+
+        # Verify data was synced
+        rows = execute_query(
+            db_url, "SELECT id, product_name, unit_price, quantity FROM products ORDER BY id"
+        )
+        assert len(rows) == 1
+        assert rows[0][0] == "1"
+        assert rows[0][1] == "Widget"
+        # Note: Values are stored as strings in CSV, databases may convert them
+
+    def test_schema_evolution_add_columns(self, tmp_path: Path, db_url: str) -> None:
+        """Test that new columns are automatically added to existing tables."""
+        config_file = tmp_path / "config.yaml"
+
+        # Initial sync with 2 columns
+        config_file.write_text(r"""
+jobs:
+  evolving_data:
+    target_table: customers
+    id_mapping:
+      customer_id: id
+    columns:
+      name: customer_name
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("evolving_data")
+
+        csv_file = tmp_path / "customers.csv"
+        with open(csv_file, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["customer_id", "name"])
+            writer.writeheader()
+            writer.writerow({"customer_id": "1", "name": "Alice"})
+
+        sync_csv_to_postgres(csv_file, job, db_url)
+
+        # Verify initial schema
+        columns = get_table_columns(db_url, "customers")
+        assert "id" in columns
+        assert "customer_name" in columns
+        assert "email" not in columns  # Not yet added
+
+        # Update config to add new columns
+        config_file.write_text(r"""
+jobs:
+  evolving_data:
+    target_table: customers
+    id_mapping:
+      customer_id: id
+    columns:
+      name: customer_name
+      email:
+        db_column: email_address
+        type: text
+      age:
+        db_column: customer_age
+        type: integer
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("evolving_data")
+
+        # Sync with new columns
+        with open(csv_file, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["customer_id", "name", "email", "age"])
+            writer.writeheader()
+            writer.writerow(
+                {"customer_id": "2", "name": "Bob", "email": "bob@example.com", "age": "30"}
+            )
+
+        sync_csv_to_postgres(csv_file, job, db_url)
+
+        # Verify schema now includes new columns
+        columns = get_table_columns(db_url, "customers")
+        assert "id" in columns
+        assert "customer_name" in columns
+        assert "email_address" in columns  # New column added
+        assert "customer_age" in columns  # New column added
+
+        # Verify both rows exist (old one has NULL for new columns)
+        rows = execute_query(db_url, "SELECT id, customer_name FROM customers ORDER BY id")
+        assert len(rows) == 2
+        assert rows[0] == ("1", "Alice")
+        assert rows[1] == ("2", "Bob")

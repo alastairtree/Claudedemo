@@ -106,6 +106,57 @@ class SQLiteBackend:
         self.conn.close()
 
 
+def map_data_type_to_sql(data_type: str | None, db_type: str) -> str:
+    """Map config data type to SQL database type.
+
+    Args:
+        data_type: Data type from config (integer, float, date, datetime, text, varchar(N))
+        db_type: Database type ('postgresql' or 'sqlite')
+
+    Returns:
+        SQL type string for the database
+
+    Supported types:
+        - integer: PostgreSQL INTEGER, SQLite INTEGER
+        - float: PostgreSQL DOUBLE PRECISION, SQLite REAL
+        - date: PostgreSQL DATE, SQLite TEXT
+        - datetime: PostgreSQL TIMESTAMP, SQLite TEXT
+        - text: PostgreSQL TEXT, SQLite TEXT
+        - varchar(N): PostgreSQL VARCHAR(N), SQLite TEXT
+        - None (default): TEXT for both
+    """
+    if data_type is None:
+        return "TEXT"
+
+    data_type_lower = data_type.lower().strip()
+
+    # Check for varchar(N) pattern
+    if data_type_lower.startswith("varchar"):
+        if db_type == "postgresql":
+            return data_type.upper()  # VARCHAR(N)
+        else:
+            return "TEXT"  # SQLite doesn't have VARCHAR, use TEXT
+
+    # Map other types
+    type_mapping = {
+        "integer": {"postgresql": "INTEGER", "sqlite": "INTEGER"},
+        "int": {"postgresql": "INTEGER", "sqlite": "INTEGER"},
+        "float": {"postgresql": "DOUBLE PRECISION", "sqlite": "REAL"},
+        "double": {"postgresql": "DOUBLE PRECISION", "sqlite": "REAL"},
+        "date": {"postgresql": "DATE", "sqlite": "TEXT"},
+        "datetime": {"postgresql": "TIMESTAMP", "sqlite": "TEXT"},
+        "timestamp": {"postgresql": "TIMESTAMP", "sqlite": "TEXT"},
+        "text": {"postgresql": "TEXT", "sqlite": "TEXT"},
+        "string": {"postgresql": "TEXT", "sqlite": "TEXT"},
+    }
+
+    if data_type_lower in type_mapping:
+        return type_mapping[data_type_lower][db_type]
+
+    # Default to TEXT if type is not recognized
+    return "TEXT"
+
+
 class DatabaseConnection:
     """Database connection handler supporting PostgreSQL and SQLite."""
 
@@ -187,6 +238,58 @@ class DatabaseConnection:
                 column_defs_str += f", PRIMARY KEY ({pk_columns})"
 
             query = f'CREATE TABLE IF NOT EXISTS "{table_name}" ({column_defs_str})'
+            self.backend.execute(query)
+
+        self.backend.commit()
+
+    def get_existing_columns(self, table_name: str) -> set[str]:
+        """Get set of existing column names in a table.
+
+        Args:
+            table_name: Name of the table
+
+        Returns:
+            Set of column names (lowercase)
+        """
+        if not self.backend:
+            raise RuntimeError("Database connection not established")
+
+        if self.db_type == "postgresql":
+            query = """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = %s
+            """
+            results = self.backend.fetchall(query, (table_name,))
+            return {row[0].lower() for row in results}
+        else:
+            # SQLite: use PRAGMA table_info
+            query = f'PRAGMA table_info("{table_name}")'
+            results = self.backend.fetchall(query)
+            # PRAGMA table_info returns: (cid, name, type, notnull, dflt_value, pk)
+            return {row[1].lower() for row in results}
+
+    def add_column(self, table_name: str, column_name: str, column_type: str) -> None:
+        """Add a new column to an existing table.
+
+        Args:
+            table_name: Name of the table
+            column_name: Name of the column to add
+            column_type: SQL type for the column
+        """
+        if not self.backend:
+            raise RuntimeError("Database connection not established")
+
+        if self.db_type == "postgresql":
+            query = sql.SQL("ALTER TABLE {} ADD COLUMN {} {}").format(
+                sql.Identifier(table_name),
+                sql.Identifier(column_name),
+                sql.SQL(column_type),
+            )
+            self.backend.execute(query.as_string(self.backend.conn))  # type: ignore
+        else:
+            # SQLite
+            query = f'ALTER TABLE "{table_name}" ADD COLUMN "{column_name}" {column_type}'
             self.backend.execute(query)
 
         self.backend.commit()
@@ -353,11 +456,11 @@ class DatabaseConnection:
                     if csv_col != job.id_mapping.csv_column:
                         sync_columns.append(type(job.id_mapping)(csv_col, csv_col))
 
-            # Create table with all needed columns (TEXT type for simplicity)
-            columns_def = {job.id_mapping.db_column: "TEXT"}
+            # Build column definitions with types from config
+            columns_def = {}
             for col_mapping in sync_columns:
-                if col_mapping.db_column != job.id_mapping.db_column:
-                    columns_def[col_mapping.db_column] = "TEXT"
+                sql_type = map_data_type_to_sql(col_mapping.data_type, self.db_type)
+                columns_def[col_mapping.db_column] = sql_type
 
             # Add date column if date_mapping is configured
             if job.date_mapping:
@@ -367,6 +470,12 @@ class DatabaseConnection:
             primary_keys = [job.id_mapping.db_column]
 
             self.create_table_if_not_exists(job.target_table, columns_def, primary_keys)
+
+            # Check for schema evolution: add missing columns from config
+            existing_columns = self.get_existing_columns(job.target_table)
+            for col_name, col_type in columns_def.items():
+                if col_name.lower() not in existing_columns:
+                    self.add_column(job.target_table, col_name, col_type)
 
             # Process each row
             for row in reader:
