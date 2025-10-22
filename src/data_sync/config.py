@@ -1,5 +1,6 @@
 """Configuration file handling for data_sync."""
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,42 @@ class ColumnMapping:
         self.db_column = db_column
 
 
+class DateMapping:
+    """Configuration for extracting date from filename."""
+
+    def __init__(self, filename_regex: str, db_column: str) -> None:
+        """Initialize date mapping.
+
+        Args:
+            filename_regex: Regex pattern to extract date from filename
+            db_column: Database column to store the extracted date
+        """
+        self.filename_regex = filename_regex
+        self.db_column = db_column
+
+    def extract_date_from_filename(self, filename: str | Path) -> str | None:
+        r"""Extract date from filename using the configured regex.
+
+        Args:
+            filename: The filename (or path) to extract date from
+
+        Returns:
+            Extracted date string if found, None otherwise
+
+        Example:
+            >>> mapping = DateMapping(r'(\d{4}-\d{2}-\d{2})', 'sync_date')
+            >>> mapping.extract_date_from_filename('data_2024-01-15.csv')
+            '2024-01-15'
+        """
+        if isinstance(filename, Path):
+            filename = filename.name
+
+        match = re.search(self.filename_regex, filename)
+        if match:
+            return match.group(1)
+        return None
+
+
 class SyncJob:
     """Configuration for a single sync job."""
 
@@ -29,6 +66,7 @@ class SyncJob:
         target_table: str,
         id_mapping: ColumnMapping,
         columns: list[ColumnMapping] | None = None,
+        date_mapping: DateMapping | None = None,
     ) -> None:
         """Initialize a sync job.
 
@@ -37,11 +75,13 @@ class SyncJob:
             target_table: Target database table name
             id_mapping: Mapping for the ID column
             columns: List of column mappings to sync (all columns if None)
+            date_mapping: Optional date extraction and storage configuration
         """
         self.name = name
         self.target_table = target_table
         self.id_mapping = id_mapping
         self.columns = columns or []
+        self.date_mapping = date_mapping
 
 
 class SyncConfig:
@@ -68,7 +108,7 @@ class SyncConfig:
 
     @classmethod
     def from_yaml(cls, config_path: Path) -> "SyncConfig":
-        """Load configuration from a YAML file.
+        r"""Load configuration from a YAML file.
 
         Args:
             config_path: Path to the YAML configuration file
@@ -89,6 +129,9 @@ class SyncConfig:
                 columns:
                   name: full_name
                   email: email_address
+                date_mapping:
+                  filename_regex: '(\d{4}-\d{2}-\d{2})'
+                  db_column: sync_date
         """
         if not config_path.exists():
             raise FileNotFoundError(f"Config file not found: {config_path}")
@@ -148,9 +191,28 @@ class SyncConfig:
             for csv_col, db_col in col_data.items():
                 columns.append(ColumnMapping(csv_column=csv_col, db_column=db_col))
 
+        # Parse optional date_mapping
+        date_mapping = None
+        if "date_mapping" in job_data and job_data["date_mapping"]:
+            date_data = job_data["date_mapping"]
+            if not isinstance(date_data, dict):
+                raise ValueError(f"Job '{name}' date_mapping must be a dictionary")
+
+            if "filename_regex" not in date_data:
+                raise ValueError(f"Job '{name}' date_mapping missing 'filename_regex'")
+
+            if "db_column" not in date_data:
+                raise ValueError(f"Job '{name}' date_mapping missing 'db_column'")
+
+            date_mapping = DateMapping(
+                filename_regex=date_data["filename_regex"],
+                db_column=date_data["db_column"],
+            )
+
         return SyncJob(
             name=name,
             target_table=job_data["target_table"],
             id_mapping=id_mapping,
             columns=columns if columns else None,
+            date_mapping=date_mapping,
         )

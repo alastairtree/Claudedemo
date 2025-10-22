@@ -62,13 +62,27 @@ def sync(file_path: Path, config: Path, job: str, db_url: str) -> None:
             console.print(f"[dim]Available jobs: {available_jobs}[/dim]")
             raise click.Abort()
 
+        # Extract date from filename if date_mapping is configured
+        sync_date = None
+        if sync_job.date_mapping:
+            sync_date = sync_job.date_mapping.extract_date_from_filename(file_path)
+            if not sync_date:
+                console.print(
+                    f"[red]Error:[/red] Could not extract date from filename '{file_path.name}'"
+                )
+                console.print(f"[dim]  Regex pattern: {sync_job.date_mapping.filename_regex}[/dim]")
+                raise click.Abort()
+            console.print(f"[dim]  Extracted date: {sync_date}[/dim]")
+
         # Sync the file
         console.print(f"[cyan]Syncing {file_path.name} using job '{job}'...[/cyan]")
-        rows_synced = sync_csv_to_postgres(file_path, sync_job, db_url)
+        rows_synced = sync_csv_to_postgres(file_path, sync_job, db_url, sync_date)
 
         console.print(f"[green]✓ Successfully synced {rows_synced} rows[/green]")
         console.print(f"[dim]  Table: {sync_job.target_table}[/dim]")
         console.print(f"[dim]  File: {file_path}[/dim]")
+        if sync_date:
+            console.print(f"[dim]  Date: {sync_date}[/dim]")
 
     except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
