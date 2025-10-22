@@ -32,8 +32,9 @@ jobs:
         assert job is not None
         assert job.name == "test_job"
         assert job.target_table == "users"
-        assert job.id_mapping.csv_column == "user_id"
-        assert job.id_mapping.db_column == "id"
+        assert len(job.id_mapping) == 1
+        assert job.id_mapping[0].csv_column == "user_id"
+        assert job.id_mapping[0].db_column == "id"
         assert len(job.columns) == 2
 
     def test_config_with_no_columns(self, tmp_path: Path) -> None:
@@ -233,7 +234,8 @@ jobs:
         job = config.get_job("typed_job")
 
         assert job is not None
-        assert job.id_mapping.data_type is None  # ID has no explicit type
+        assert len(job.id_mapping) == 1
+        assert job.id_mapping[0].data_type is None  # ID has no explicit type
         assert len(job.columns) == 5
 
         # Check that data types are preserved
@@ -364,7 +366,7 @@ jobs:
         job = SyncJob(
             name="test_job",
             target_table="users",
-            id_mapping=ColumnMapping("user_id", "id"),
+            id_mapping=[ColumnMapping("user_id", "id")],
             columns=[ColumnMapping("name", "full_name")],
         )
 
@@ -376,3 +378,198 @@ jobs:
         # Reload and verify
         loaded_config = SyncConfig.from_yaml(config_file)
         assert loaded_config.id_column_matchers == ["custom_id", "record_id"]
+
+
+class TestCompoundPrimaryKeys:
+    """Test suite for compound primary keys."""
+
+    def test_config_with_compound_primary_key(self, tmp_path: Path) -> None:
+        """Test loading config with compound primary key."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: user_logins
+    id_mapping:
+      user_id: user_id
+      login_date: login_date
+    columns:
+      ip_address: ip
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_job")
+        assert job is not None
+        assert len(job.id_mapping) == 2
+        assert job.id_mapping[0].csv_column == "user_id"
+        assert job.id_mapping[0].db_column == "user_id"
+        assert job.id_mapping[1].csv_column == "login_date"
+        assert job.id_mapping[1].db_column == "login_date"
+
+    def test_save_config_with_compound_primary_key(self, tmp_path: Path) -> None:
+        """Test saving config with compound primary key."""
+        from data_sync.config import ColumnMapping, SyncJob
+
+        job = SyncJob(
+            name="test_job",
+            target_table="sales",
+            id_mapping=[
+                ColumnMapping("store_id", "store_id"),
+                ColumnMapping("product_id", "product_id"),
+            ],
+            columns=[ColumnMapping("quantity", "qty")],
+        )
+
+        config = SyncConfig(jobs={"test_job": job})
+        config_file = tmp_path / "config.yaml"
+        config.save_to_yaml(config_file)
+
+        # Reload and verify
+        loaded_config = SyncConfig.from_yaml(config_file)
+        loaded_job = loaded_config.get_job("test_job")
+        assert loaded_job is not None
+        assert len(loaded_job.id_mapping) == 2
+        assert loaded_job.id_mapping[0].db_column == "store_id"
+        assert loaded_job.id_mapping[1].db_column == "product_id"
+
+
+class TestIndexes:
+    """Test suite for database indexes."""
+
+    def test_config_with_single_column_index(self, tmp_path: Path) -> None:
+        """Test loading config with single-column index."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: users
+    id_mapping:
+      user_id: id
+    columns:
+      email: email
+    indexes:
+      - name: idx_email
+        columns:
+          - column: email
+            order: ASC
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_job")
+        assert job is not None
+        assert len(job.indexes) == 1
+        assert job.indexes[0].name == "idx_email"
+        assert len(job.indexes[0].columns) == 1
+        assert job.indexes[0].columns[0].column == "email"
+        assert job.indexes[0].columns[0].order == "ASC"
+
+    def test_config_with_multi_column_index(self, tmp_path: Path) -> None:
+        """Test loading config with multi-column index."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: orders
+    id_mapping:
+      order_id: id
+    columns:
+      customer_id: customer_id
+      order_date: order_date
+    indexes:
+      - name: idx_customer_date
+        columns:
+          - column: customer_id
+            order: ASC
+          - column: order_date
+            order: DESC
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_job")
+        assert job is not None
+        assert len(job.indexes) == 1
+        index = job.indexes[0]
+        assert index.name == "idx_customer_date"
+        assert len(index.columns) == 2
+        assert index.columns[0].column == "customer_id"
+        assert index.columns[0].order == "ASC"
+        assert index.columns[1].column == "order_date"
+        assert index.columns[1].order == "DESC"
+
+    def test_config_with_multiple_indexes(self, tmp_path: Path) -> None:
+        """Test loading config with multiple indexes."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: users
+    id_mapping:
+      user_id: id
+    columns:
+      email: email
+      name: name
+    indexes:
+      - name: idx_email
+        columns:
+          - column: email
+            order: ASC
+      - name: idx_name
+        columns:
+          - column: name
+            order: ASC
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_job")
+        assert job is not None
+        assert len(job.indexes) == 2
+        assert job.indexes[0].name == "idx_email"
+        assert job.indexes[1].name == "idx_name"
+
+    def test_save_config_with_indexes(self, tmp_path: Path) -> None:
+        """Test saving config with indexes."""
+        from data_sync.config import ColumnMapping, Index, IndexColumn, SyncJob
+
+        job = SyncJob(
+            name="test_job",
+            target_table="products",
+            id_mapping=[ColumnMapping("product_id", "id")],
+            columns=[ColumnMapping("category", "cat"), ColumnMapping("price", "price")],
+            indexes=[
+                Index(
+                    name="idx_category_price",
+                    columns=[IndexColumn("cat", "ASC"), IndexColumn("price", "DESC")],
+                )
+            ],
+        )
+
+        config = SyncConfig(jobs={"test_job": job})
+        config_file = tmp_path / "config.yaml"
+        config.save_to_yaml(config_file)
+
+        # Reload and verify
+        loaded_config = SyncConfig.from_yaml(config_file)
+        loaded_job = loaded_config.get_job("test_job")
+        assert loaded_job is not None
+        assert len(loaded_job.indexes) == 1
+        index = loaded_job.indexes[0]
+        assert index.name == "idx_category_price"
+        assert len(index.columns) == 2
+        assert index.columns[0].column == "cat"
+        assert index.columns[0].order == "ASC"
+        assert index.columns[1].column == "price"
+        assert index.columns[1].order == "DESC"
+
+    def test_index_invalid_order(self) -> None:
+        """Test that invalid index order raises error."""
+        from data_sync.config import IndexColumn
+
+        with pytest.raises(ValueError, match="Index order must be 'ASC' or 'DESC'"):
+            IndexColumn("email", "INVALID")
+
+    def test_index_no_columns(self) -> None:
+        """Test that index with no columns raises error."""
+        from data_sync.config import Index
+
+        with pytest.raises(ValueError, match="Index must have at least one column"):
+            Index("idx_test", [])

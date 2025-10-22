@@ -67,6 +67,22 @@ class DatabaseBackend(Protocol):
         """Delete records from database that aren't in current CSV."""
         ...
 
+    def get_existing_indexes(self, table_name: str) -> set[str]:
+        """Get set of existing index names for a table."""
+        ...
+
+    def create_index(
+        self, table_name: str, index_name: str, columns: list[tuple[str, str]]
+    ) -> None:
+        """Create an index on the specified columns.
+
+        Args:
+            table_name: Name of the table
+            index_name: Name of the index to create
+            columns: List of (column_name, order) tuples, e.g. [('email', 'ASC'), ('date', 'DESC')]
+        """
+        ...
+
 
 class PostgreSQLBackend:
     """PostgreSQL database backend."""
@@ -227,6 +243,34 @@ class PostgreSQLBackend:
 
         return deleted_count
 
+    def get_existing_indexes(self, table_name: str) -> set[str]:
+        """Get set of existing index names for a table."""
+        query = """
+            SELECT indexname
+            FROM pg_indexes
+            WHERE tablename = %s
+        """
+        results = self.fetchall(query, (table_name,))
+        return {row[0].lower() for row in results}
+
+    def create_index(
+        self, table_name: str, index_name: str, columns: list[tuple[str, str]]
+    ) -> None:
+        """Create an index on the specified columns."""
+        # Build column list with order
+        column_parts = []
+        for col_name, order in columns:
+            column_parts.append(sql.SQL("{} {}").format(sql.Identifier(col_name), sql.SQL(order)))
+
+        query = sql.SQL("CREATE INDEX IF NOT EXISTS {} ON {} ({})").format(
+            sql.Identifier(index_name),
+            sql.Identifier(table_name),
+            sql.SQL(", ").join(column_parts),
+        )
+
+        self.execute(query.as_string(self.conn))
+        self.commit()
+
 
 class SQLiteBackend:
     """SQLite database backend."""
@@ -375,6 +419,27 @@ class SQLiteBackend:
 
         return deleted_count
 
+    def get_existing_indexes(self, table_name: str) -> set[str]:
+        """Get set of existing index names for a table."""
+        query = "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name=?"
+        results = self.fetchall(query, (table_name,))
+        return {row[0].lower() for row in results}
+
+    def create_index(
+        self, table_name: str, index_name: str, columns: list[tuple[str, str]]
+    ) -> None:
+        """Create an index on the specified columns."""
+        # Build column list with order
+        column_parts = []
+        for col_name, order in columns:
+            column_parts.append(f'"{col_name}" {order}')
+
+        columns_str = ", ".join(column_parts)
+        query = f'CREATE INDEX IF NOT EXISTS "{index_name}" ON "{table_name}" ({columns_str})'
+
+        self.execute(query)
+        self.commit()
+
 
 class DatabaseConnection:
     """Database connection handler supporting PostgreSQL and SQLite."""
@@ -450,6 +515,20 @@ class DatabaseConnection:
             table_name, id_column, date_column, sync_date, current_ids
         )
 
+    def get_existing_indexes(self, table_name: str) -> set[str]:
+        """Get set of existing index names for a table."""
+        if not self.backend:
+            raise RuntimeError("Database connection not established")
+        return self.backend.get_existing_indexes(table_name)
+
+    def create_index(
+        self, table_name: str, index_name: str, columns: list[tuple[str, str]]
+    ) -> None:
+        """Create an index on the specified columns."""
+        if not self.backend:
+            raise RuntimeError("Database connection not established")
+        self.backend.create_index(table_name, index_name, columns)
+
     def sync_csv_file(self, csv_path: Path, job: SyncJob, sync_date: str | None = None) -> int:
         """Sync a CSV file to the database using job configuration.
 
@@ -477,24 +556,30 @@ class DatabaseConnection:
             if not reader.fieldnames:
                 raise ValueError("CSV file has no columns")
 
-            # Validate that required columns exist in CSV
+            # Validate that required ID columns exist in CSV
             csv_columns = set(reader.fieldnames)
-            if job.id_mapping.csv_column not in csv_columns:
-                raise ValueError(f"ID column '{job.id_mapping.csv_column}' not found in CSV")
+            id_csv_columns = set()
+            for id_col in job.id_mapping:
+                if id_col.csv_column not in csv_columns:
+                    raise ValueError(f"ID column '{id_col.csv_column}' not found in CSV")
+                id_csv_columns.add(id_col.csv_column)
 
             # Determine which columns to sync
             if job.columns:
                 # Specific columns defined
-                sync_columns = [job.id_mapping] + job.columns
+                sync_columns = list(job.id_mapping) + job.columns
                 for col_mapping in job.columns:
                     if col_mapping.csv_column not in csv_columns:
                         raise ValueError(f"Column '{col_mapping.csv_column}' not found in CSV")
             else:
                 # Sync all columns
-                sync_columns = [job.id_mapping]
+                sync_columns = list(job.id_mapping)
                 for csv_col in csv_columns:
-                    if csv_col != job.id_mapping.csv_column:
-                        sync_columns.append(type(job.id_mapping)(csv_col, csv_col))
+                    if csv_col not in id_csv_columns:
+                        # Create ColumnMapping instance for non-ID columns
+                        from data_sync.config import ColumnMapping
+
+                        sync_columns.append(ColumnMapping(csv_col, csv_col))
 
             # Build column definitions with types from config
             columns_def = {}
@@ -506,8 +591,8 @@ class DatabaseConnection:
             if job.date_mapping:
                 columns_def[job.date_mapping.db_column] = "TEXT"
 
-            # Primary key is always based on id_mapping only (date is NOT part of primary key)
-            primary_keys = [job.id_mapping.db_column]
+            # Primary key is always based on id_mapping (supports compound keys)
+            primary_keys = [id_col.db_column for id_col in job.id_mapping]
 
             self.create_table_if_not_exists(job.target_table, columns_def, primary_keys)
 
@@ -516,6 +601,14 @@ class DatabaseConnection:
             for col_name, col_type in columns_def.items():
                 if col_name.lower() not in existing_columns:
                     self.add_column(job.target_table, col_name, col_type)
+
+            # Create indexes that don't already exist
+            if job.indexes:
+                existing_indexes = self.get_existing_indexes(job.target_table)
+                for index in job.indexes:
+                    if index.name.lower() not in existing_indexes:
+                        index_columns = [(col.column, col.order) for col in index.columns]
+                        self.create_index(job.target_table, index.name, index_columns)
 
             # Process each row
             for row in reader:
@@ -530,15 +623,18 @@ class DatabaseConnection:
 
                 self.upsert_row(job.target_table, primary_keys, row_data)
 
-                # Track synced IDs for cleanup
-                synced_ids.add(row_data[job.id_mapping.db_column])
+                # Track synced IDs for cleanup (use first ID column for cleanup tracking)
+                first_id_column = job.id_mapping[0].db_column
+                synced_ids.add(row_data[first_id_column])
                 rows_synced += 1
 
         # Clean up stale records if date_mapping is configured
+        # Note: cleanup uses only the first ID column for simplicity
         if job.date_mapping and sync_date:
+            first_id_column = job.id_mapping[0].db_column
             self.delete_stale_records(
                 job.target_table,
-                job.id_mapping.db_column,
+                first_id_column,
                 job.date_mapping.db_column,
                 sync_date,
                 synced_ids,

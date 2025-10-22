@@ -108,6 +108,34 @@ def get_table_columns(db_url: str, table_name: str) -> list[str]:
             return [row[0] for row in cur.fetchall()]
 
 
+def get_table_indexes(db_url: str, table_name: str) -> set[str]:
+    """Get index names from a table for any database type."""
+    if db_url.startswith("sqlite"):
+        db_path = db_url.replace("sqlite:///", "")
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name=?", (table_name,)
+        )
+        indexes = {row[0].lower() for row in cursor.fetchall()}
+        cursor.close()
+        conn.close()
+        return indexes
+    else:
+        import psycopg
+
+        with psycopg.connect(db_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT indexname
+                FROM pg_indexes
+                WHERE tablename = %s
+            """,
+                (table_name,),
+            )
+            return {row[0].lower() for row in cur.fetchall()}
+
+
 class TestDatabaseIntegration:
     """Integration tests with SQLite and PostgreSQL databases."""
 
@@ -571,3 +599,192 @@ jobs:
         assert len(rows) == 2
         assert rows[0] == ("1", "Alice")
         assert rows[1] == ("2", "Bob")
+
+    @pytest.mark.parametrize("db_url", ["sqlite", "postgres"], indirect=True)
+    def test_compound_primary_key(self, tmp_path: Path, db_url: str) -> None:
+        """Test syncing with compound primary key."""
+        from data_sync.config import ColumnMapping, SyncJob
+
+        # Create CSV with data
+        csv_file = tmp_path / "sales.csv"
+        with open(csv_file, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["store_id", "product_id", "quantity", "price"])
+            writer.writeheader()
+            writer.writerow({"store_id": "1", "product_id": "A", "quantity": "10", "price": "9.99"})
+            writer.writerow({"store_id": "1", "product_id": "B", "quantity": "5", "price": "19.99"})
+            writer.writerow({"store_id": "2", "product_id": "A", "quantity": "8", "price": "9.99"})
+
+        # Create job with compound primary key
+        job = SyncJob(
+            name="sales",
+            target_table="sales",
+            id_mapping=[
+                ColumnMapping("store_id", "store_id"),
+                ColumnMapping("product_id", "product_id"),
+            ],
+            columns=[
+                ColumnMapping("quantity", "qty"),
+                ColumnMapping("price", "price"),
+            ],
+        )
+
+        # Sync data
+        sync_csv_to_postgres(csv_file, job, db_url)
+
+        # Verify data
+        rows = execute_query(
+            db_url, "SELECT store_id, product_id, qty FROM sales ORDER BY store_id, product_id"
+        )
+        assert len(rows) == 3
+        assert rows[0] == ("1", "A", "10")
+        assert rows[1] == ("1", "B", "5")
+        assert rows[2] == ("2", "A", "8")
+
+        # Update existing row and add new row
+        with open(csv_file, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["store_id", "product_id", "quantity", "price"])
+            writer.writeheader()
+            writer.writerow(
+                {"store_id": "1", "product_id": "A", "quantity": "15", "price": "9.99"}
+            )  # Updated
+            writer.writerow({"store_id": "1", "product_id": "B", "quantity": "5", "price": "19.99"})
+            writer.writerow({"store_id": "2", "product_id": "A", "quantity": "8", "price": "9.99"})
+            writer.writerow(
+                {"store_id": "2", "product_id": "B", "quantity": "3", "price": "19.99"}
+            )  # New
+
+        sync_csv_to_postgres(csv_file, job, db_url)
+
+        # Verify update and insert
+        rows = execute_query(
+            db_url, "SELECT store_id, product_id, qty FROM sales ORDER BY store_id, product_id"
+        )
+        assert len(rows) == 4
+        assert rows[0] == ("1", "A", "15")  # Updated quantity
+        assert rows[3] == ("2", "B", "3")  # New row
+
+    @pytest.mark.parametrize("db_url", ["sqlite", "postgres"], indirect=True)
+    def test_single_column_index(self, tmp_path: Path, db_url: str) -> None:
+        """Test creating single-column index."""
+        from data_sync.config import ColumnMapping, Index, IndexColumn, SyncJob
+
+        # Create CSV
+        csv_file = tmp_path / "users.csv"
+        with open(csv_file, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["user_id", "email", "name"])
+            writer.writeheader()
+            writer.writerow({"user_id": "1", "email": "alice@example.com", "name": "Alice"})
+
+        # Create job with index
+        job = SyncJob(
+            name="users",
+            target_table="users",
+            id_mapping=[ColumnMapping("user_id", "id")],
+            columns=[
+                ColumnMapping("email", "email"),
+                ColumnMapping("name", "name"),
+            ],
+            indexes=[Index(name="idx_email", columns=[IndexColumn("email", "ASC")])],
+        )
+
+        # Sync data
+        sync_csv_to_postgres(csv_file, job, db_url)
+
+        # Verify index exists
+        indexes = get_table_indexes(db_url, "users")
+        assert "idx_email" in indexes
+
+        # Sync again - index should not be recreated (no error)
+        sync_csv_to_postgres(csv_file, job, db_url)
+
+    @pytest.mark.parametrize("db_url", ["sqlite", "postgres"], indirect=True)
+    def test_multi_column_index(self, tmp_path: Path, db_url: str) -> None:
+        """Test creating multi-column index with different sort orders."""
+        from data_sync.config import ColumnMapping, Index, IndexColumn, SyncJob
+
+        # Create CSV
+        csv_file = tmp_path / "orders.csv"
+        with open(csv_file, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(
+                f, fieldnames=["order_id", "customer_id", "order_date", "total"]
+            )
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "order_id": "1",
+                    "customer_id": "100",
+                    "order_date": "2024-01-01",
+                    "total": "50.00",
+                }
+            )
+
+        # Create job with multi-column index
+        job = SyncJob(
+            name="orders",
+            target_table="orders",
+            id_mapping=[ColumnMapping("order_id", "id")],
+            columns=[
+                ColumnMapping("customer_id", "customer_id"),
+                ColumnMapping("order_date", "order_date"),
+                ColumnMapping("total", "total"),
+            ],
+            indexes=[
+                Index(
+                    name="idx_customer_date",
+                    columns=[
+                        IndexColumn("customer_id", "ASC"),
+                        IndexColumn("order_date", "DESC"),
+                    ],
+                )
+            ],
+        )
+
+        # Sync data
+        sync_csv_to_postgres(csv_file, job, db_url)
+
+        # Verify index exists
+        indexes = get_table_indexes(db_url, "orders")
+        assert "idx_customer_date" in indexes
+
+    @pytest.mark.parametrize("db_url", ["sqlite", "postgres"], indirect=True)
+    def test_multiple_indexes(self, tmp_path: Path, db_url: str) -> None:
+        """Test creating multiple indexes on a table."""
+        from data_sync.config import ColumnMapping, Index, IndexColumn, SyncJob
+
+        # Create CSV
+        csv_file = tmp_path / "products.csv"
+        with open(csv_file, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["product_id", "name", "category", "price"])
+            writer.writeheader()
+            writer.writerow(
+                {"product_id": "1", "name": "Widget", "category": "Tools", "price": "9.99"}
+            )
+
+        # Create job with multiple indexes
+        job = SyncJob(
+            name="products",
+            target_table="products",
+            id_mapping=[ColumnMapping("product_id", "id")],
+            columns=[
+                ColumnMapping("name", "name"),
+                ColumnMapping("category", "category"),
+                ColumnMapping("price", "price"),
+            ],
+            indexes=[
+                Index(name="idx_name", columns=[IndexColumn("name", "ASC")]),
+                Index(name="idx_category", columns=[IndexColumn("category", "ASC")]),
+                Index(
+                    name="idx_category_price",
+                    columns=[IndexColumn("category", "ASC"), IndexColumn("price", "DESC")],
+                ),
+            ],
+        )
+
+        # Sync data
+        sync_csv_to_postgres(csv_file, job, db_url)
+
+        # Verify all indexes exist
+        indexes = get_table_indexes(db_url, "products")
+        assert "idx_name" in indexes
+        assert "idx_category" in indexes
+        assert "idx_category_price" in indexes
