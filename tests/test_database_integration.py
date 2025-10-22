@@ -27,6 +27,7 @@ def _should_skip_integration_tests():
     # On Linux, check if Docker is available
     try:
         import docker
+
         client = docker.from_env()
         client.ping()
         return False, None
