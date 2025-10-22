@@ -98,10 +98,10 @@ class DatabaseBackend(Protocol):
 
     def table_exists(self, table_name: str) -> bool:
         """Check if a table exists in the database.
-        
+
         Args:
             table_name: Name of the table to check
-            
+
         Returns:
             True if table exists, False otherwise
         """
@@ -116,14 +116,14 @@ class DatabaseBackend(Protocol):
         current_ids: set[str],
     ) -> int:
         """Count records that would be deleted without actually deleting them.
-        
+
         Args:
             table_name: Name of the table
             id_column: Name of the ID column
             date_column: Name of the date column
             sync_date: Date value to filter by
             current_ids: Set of IDs from the current CSV
-            
+
         Returns:
             Count of records that would be deleted
         """
@@ -319,16 +319,16 @@ class PostgreSQLBackend:
 
     def table_exists(self, table_name: str) -> bool:
         """Check if a table exists in the database.
-        
+
         Args:
             table_name: Name of the table to check
-            
+
         Returns:
             True if table exists, False otherwise
         """
         query = """
             SELECT EXISTS (
-                SELECT FROM information_schema.tables 
+                SELECT FROM information_schema.tables
                 WHERE table_name = %s
             )
         """
@@ -344,14 +344,14 @@ class PostgreSQLBackend:
         current_ids: set[str],
     ) -> int:
         """Count records that would be deleted without actually deleting them.
-        
+
         Args:
             table_name: Name of the table
             id_column: Name of the ID column
             date_column: Name of the date column
             sync_date: Date value to filter by
             current_ids: Set of IDs from the current CSV
-            
+
         Returns:
             Count of records that would be deleted
         """
@@ -542,10 +542,10 @@ class SQLiteBackend:
 
     def table_exists(self, table_name: str) -> bool:
         """Check if a table exists in the database.
-        
+
         Args:
             table_name: Name of the table to check
-            
+
         Returns:
             True if table exists, False otherwise
         """
@@ -562,14 +562,14 @@ class SQLiteBackend:
         current_ids: set[str],
     ) -> int:
         """Count records that would be deleted without actually deleting them.
-        
+
         Args:
             table_name: Name of the table
             id_column: Name of the ID column
             date_column: Name of the date column
             sync_date: Date value to filter by
             current_ids: Set of IDs from the current CSV
-            
+
         Returns:
             Count of records that would be deleted
         """
@@ -676,10 +676,10 @@ class DatabaseConnection:
 
     def table_exists(self, table_name: str) -> bool:
         """Check if a table exists in the database.
-        
+
         Args:
             table_name: Name of the table to check
-            
+
         Returns:
             True if table exists, False otherwise
         """
@@ -696,14 +696,14 @@ class DatabaseConnection:
         current_ids: set[str],
     ) -> int:
         """Count records that would be deleted without actually deleting them.
-        
+
         Args:
             table_name: Name of the table
             id_column: Name of the ID column
             date_column: Name of the date column
             sync_date: Date value to filter by
             current_ids: Set of IDs from the current CSV
-            
+
         Returns:
             Count of records that would be deleted
         """
@@ -860,15 +860,15 @@ class DatabaseConnection:
         self, csv_path: Path, job: SyncJob, sync_date: str | None = None
     ) -> DryRunSummary:
         """Simulate syncing a CSV file without making database changes.
-        
+
         Args:
             csv_path: Path to CSV file
             job: SyncJob configuration
             sync_date: Optional date value to store in date column for all rows
-            
+
         Returns:
             DryRunSummary with details of what would be changed
-            
+
         Raises:
             FileNotFoundError: If CSV file doesn't exist
             ValueError: If CSV is invalid or columns don't match
@@ -893,18 +893,17 @@ class DatabaseConnection:
 
             # Build schema definitions
             columns_def = self._build_column_definitions(sync_columns, job)
-            primary_keys = [id_col.db_column for id_col in job.id_mapping]
 
             # Check what schema changes would be made
             summary.table_exists = self.table_exists(job.target_table)
-            
+
             if summary.table_exists:
                 # Check for new columns
                 existing_columns = self.get_existing_columns(job.target_table)
                 for col_name, col_type in columns_def.items():
                     if col_name.lower() not in existing_columns:
                         summary.new_columns.append((col_name, col_type))
-                
+
                 # Check for new indexes
                 if job.indexes:
                     existing_indexes = self.get_existing_indexes(job.target_table)
