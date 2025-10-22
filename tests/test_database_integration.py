@@ -1,28 +1,27 @@
-"""Integration tests for database synchronization with real Postgres."""
+"""Integration tests for database synchronization with SQLite and PostgreSQL."""
 
 import csv
 import platform
+import sqlite3
 from pathlib import Path
 
-import psycopg
 import pytest
-from testcontainers.postgres import PostgresContainer
 
 from data_sync.config import SyncConfig
 from data_sync.database import DatabaseConnection, sync_csv_to_postgres
 
 
-def _should_skip_integration_tests():
-    """Check if integration tests should be skipped.
+def _should_skip_postgres_tests():
+    """Check if PostgreSQL tests should be skipped.
 
     Testcontainers has issues on Windows/macOS with Docker socket mounting.
-    Only run integration tests on Linux (locally or in CI).
+    Only run PostgreSQL tests on Linux (locally or in CI).
     """
     system = platform.system()
 
     # Skip on Windows and macOS - testcontainers doesn't work reliably
     if system in ("Windows", "Darwin"):
-        return True, f"Integration tests not supported on {system} (testcontainers limitation)"
+        return True, f"PostgreSQL tests not supported on {system} (testcontainers limitation)"
 
     # On Linux, check if Docker is available
     try:
@@ -35,30 +34,86 @@ def _should_skip_integration_tests():
         return True, f"Docker is not available: {e}"
 
 
-@pytest.fixture(scope="module")
-def postgres_container():
-    """Provide a PostgreSQL test container."""
-    should_skip, reason = _should_skip_integration_tests()
+@pytest.fixture(params=["sqlite", "postgres"])
+def db_url(request, tmp_path):
+    """Provide database connection URL for both SQLite and PostgreSQL."""
+    if request.param == "sqlite":
+        # SQLite: use file-based database
+        db_file = tmp_path / "test.db"
+        return f"sqlite:///{db_file}"
+    else:
+        # PostgreSQL: use testcontainers
+        should_skip, reason = _should_skip_postgres_tests()
+        if should_skip:
+            pytest.skip(reason)
 
-    if should_skip:
-        pytest.skip(reason)
+        from testcontainers.postgres import PostgresContainer
 
-    with PostgresContainer("postgres:16-alpine") as postgres:
-        yield postgres
+        # Create container for this test
+        container = PostgresContainer("postgres:16-alpine")
+        container.start()
+
+        # Store container in request so we can clean it up
+        request.addfinalizer(container.stop)
+
+        return container.get_connection_url(driver=None)
 
 
-@pytest.fixture
-def db_url(postgres_container):
-    """Provide database connection URL."""
-    # Get URL with driver=None to get standard postgresql:// format
-    # psycopg3 expects postgresql:// not psycopg2://
-    return postgres_container.get_connection_url(driver=None)
+def execute_query(db_url: str, query: str, params: tuple = ()) -> list[tuple]:
+    """Execute a query and return results for any database type."""
+    if db_url.startswith("sqlite"):
+        # Extract path from sqlite:///path
+        db_path = db_url.replace("sqlite:///", "")
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        # Replace %s with ? for SQLite
+        sqlite_query = query.replace("%s", "?")
+        cursor.execute(sqlite_query, params)
+        results = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return results
+    else:
+        import psycopg
+
+        with psycopg.connect(db_url) as conn, conn.cursor() as cur:
+            cur.execute(query, params)
+            return cur.fetchall()
+
+
+def get_table_columns(db_url: str, table_name: str) -> list[str]:
+    """Get column names from a table for any database type."""
+    if db_url.startswith("sqlite"):
+        db_path = db_url.replace("sqlite:///", "")
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute(f'PRAGMA table_info("{table_name}")')
+        columns = [row[1] for row in cursor.fetchall()]  # Column name is at index 1
+        cursor.close()
+        conn.close()
+        return sorted(columns)
+    else:
+        import psycopg
+
+        with psycopg.connect(db_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = %s
+                ORDER BY column_name
+            """,
+                (table_name,),
+            )
+            return [row[0] for row in cur.fetchall()]
 
 
 class TestDatabaseIntegration:
-    """Integration tests with real PostgreSQL database."""
+    """Integration tests with SQLite and PostgreSQL databases."""
 
-    def test_sync_csv_with_column_mapping_and_exclusion(self, tmp_path: Path, db_url: str) -> None:
+    def test_sync_csv_with_column_mapping_and_exclusion(
+        self, tmp_path: Path, db_url: str
+    ) -> None:
         """Test syncing CSV with renamed column and excluded column.
 
         This test verifies:
@@ -96,39 +151,28 @@ jobs:
         assert rows_synced == 3
 
         # Verify data in database
-        with psycopg.connect(db_url) as conn, conn.cursor() as cur:
-            # Check table exists and has correct columns
-            cur.execute("""
-                    SELECT column_name
-                    FROM information_schema.columns
-                    WHERE table_name = 'users'
-                    ORDER BY column_name
-                """)
-            columns = [row[0] for row in cur.fetchall()]
-            assert "id" in columns
-            assert "full_name" in columns
-            assert "email" not in columns  # This column should NOT be synced
+        columns = get_table_columns(db_url, "users")
+        assert "id" in columns
+        assert "full_name" in columns
+        assert "email" not in columns  # This column should NOT be synced
 
-            # Check data
-            cur.execute("SELECT id, full_name FROM users ORDER BY id")
-            rows = cur.fetchall()
-            assert len(rows) == 3
-            assert rows[0] == ("1", "Alice")
-            assert rows[1] == ("2", "Bob")
-            assert rows[2] == ("3", "Charlie")
+        # Check data
+        rows = execute_query(db_url, "SELECT id, full_name FROM users ORDER BY id")
+        assert len(rows) == 3
+        assert rows[0] == ("1", "Alice")
+        assert rows[1] == ("2", "Bob")
+        assert rows[2] == ("3", "Charlie")
 
         # Second sync (idempotency test)
         rows_synced_2 = sync_csv_to_postgres(csv_file, job, db_url)
         assert rows_synced_2 == 3
 
         # Verify data hasn't changed
-        with psycopg.connect(db_url) as conn, conn.cursor() as cur:
-            cur.execute("SELECT id, full_name FROM users ORDER BY id")
-            rows = cur.fetchall()
-            assert len(rows) == 3  # Still 3 rows, no duplicates
-            assert rows[0] == ("1", "Alice")
-            assert rows[1] == ("2", "Bob")
-            assert rows[2] == ("3", "Charlie")
+        rows = execute_query(db_url, "SELECT id, full_name FROM users ORDER BY id")
+        assert len(rows) == 3  # Still 3 rows, no duplicates
+        assert rows[0] == ("1", "Alice")
+        assert rows[1] == ("2", "Bob")
+        assert rows[2] == ("3", "Charlie")
 
     def test_sync_all_columns(self, tmp_path: Path, db_url: str) -> None:
         """Test syncing all columns when no specific columns are listed."""
@@ -160,24 +204,16 @@ jobs:
         assert rows_synced == 2
 
         # Verify all columns were synced
-        with psycopg.connect(db_url) as conn, conn.cursor() as cur:
-            cur.execute("""
-                    SELECT column_name
-                    FROM information_schema.columns
-                    WHERE table_name = 'products'
-                    ORDER BY column_name
-                """)
-            columns = [row[0] for row in cur.fetchall()]
-            assert "id" in columns
-            assert "name" in columns
-            assert "price" in columns
-            assert "category" in columns
+        columns = get_table_columns(db_url, "products")
+        assert "id" in columns
+        assert "name" in columns
+        assert "price" in columns
+        assert "category" in columns
 
-            cur.execute("SELECT id, name, price, category FROM products ORDER BY id")
-            rows = cur.fetchall()
-            assert len(rows) == 2
-            assert rows[0] == ("P1", "Widget", "9.99", "Tools")
-            assert rows[1] == ("P2", "Gadget", "19.99", "Electronics")
+        rows = execute_query(db_url, "SELECT id, name, price, category FROM products ORDER BY id")
+        assert len(rows) == 2
+        assert rows[0] == ("P1", "Widget", "9.99", "Tools")
+        assert rows[1] == ("P2", "Gadget", "19.99", "Electronics")
 
     def test_upsert_updates_existing_rows(self, tmp_path: Path, db_url: str) -> None:
         """Test that upserting updates existing rows instead of creating duplicates."""
@@ -214,14 +250,11 @@ jobs:
         sync_csv_to_postgres(csv_file, job, db_url)
 
         # Verify only one row exists with updated value
-        with psycopg.connect(db_url) as conn, conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM test_data")
-            count = cur.fetchone()[0]
-            assert count == 1  # Still only one row
+        count_result = execute_query(db_url, "SELECT COUNT(*) FROM test_data")
+        assert count_result[0][0] == 1  # Still only one row
 
-            cur.execute("SELECT id, value FROM test_data")
-            row = cur.fetchone()
-            assert row == ("1", "updated")  # Value was updated
+        row_result = execute_query(db_url, "SELECT id, value FROM test_data")
+        assert row_result[0] == ("1", "updated")  # Value was updated
 
     def test_missing_csv_column_error(self, tmp_path: Path, db_url: str) -> None:
         """Test error when CSV is missing a required column."""
@@ -284,21 +317,13 @@ jobs:
         assert rows_synced == 2
 
         # Verify date column was created and populated
-        with psycopg.connect(db_url) as conn, conn.cursor() as cur:
-            cur.execute("""
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_name = 'sales'
-                ORDER BY column_name
-            """)
-            columns = [row[0] for row in cur.fetchall()]
-            assert "sync_date" in columns
+        columns = get_table_columns(db_url, "sales")
+        assert "sync_date" in columns
 
-            cur.execute("SELECT id, amount, sync_date FROM sales ORDER BY id")
-            rows = cur.fetchall()
-            assert len(rows) == 2
-            assert rows[0] == ("1", "100", "2024-01-15")
-            assert rows[1] == ("2", "200", "2024-01-15")
+        rows = execute_query(db_url, "SELECT id, amount, sync_date FROM sales ORDER BY id")
+        assert len(rows) == 2
+        assert rows[0] == ("1", "100", "2024-01-15")
+        assert rows[1] == ("2", "200", "2024-01-15")
 
     def test_delete_stale_records(self, tmp_path: Path, db_url: str) -> None:
         """Test that stale records are deleted after sync."""
@@ -331,10 +356,10 @@ jobs:
         assert rows_synced == 3
 
         # Verify 3 records exist
-        with psycopg.connect(db_url) as conn, conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM data WHERE sync_date = '2024-01-15'")
-            count = cur.fetchone()[0]
-            assert count == 3
+        count_result = execute_query(
+            db_url, "SELECT COUNT(*) FROM data WHERE sync_date = %s", ("2024-01-15",)
+        )
+        assert count_result[0][0] == 3
 
         # Second sync with only 2 records (ID 3 removed)
         with open(csv_file, "w", newline="", encoding="utf-8") as f:
@@ -347,14 +372,16 @@ jobs:
         assert rows_synced_2 == 2
 
         # Verify only 2 records remain for this date
-        with psycopg.connect(db_url) as conn, conn.cursor() as cur:
-            cur.execute("SELECT id, value FROM data WHERE sync_date = '2024-01-15' ORDER BY id")
-            rows = cur.fetchall()
-            assert len(rows) == 2
-            assert rows[0] == ("1", "A_updated")
-            assert rows[1] == ("2", "B_updated")
+        rows = execute_query(
+            db_url, "SELECT id, value FROM data WHERE sync_date = %s ORDER BY id", ("2024-01-15",)
+        )
+        assert len(rows) == 2
+        assert rows[0] == ("1", "A_updated")
+        assert rows[1] == ("2", "B_updated")
 
-    def test_delete_stale_records_preserves_other_dates(self, tmp_path: Path, db_url: str) -> None:
+    def test_delete_stale_records_preserves_other_dates(
+        self, tmp_path: Path, db_url: str
+    ) -> None:
         """Test that deleting stale records only affects matching date."""
         config_file = tmp_path / "config.yaml"
         config_file.write_text(r"""
@@ -395,10 +422,8 @@ jobs:
         sync_csv_to_postgres(csv_file_2, job, db_url, sync_date_2)
 
         # Verify total records
-        with psycopg.connect(db_url) as conn, conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM multi_date_data")
-            total_count = cur.fetchone()[0]
-            assert total_count == 5  # 2 from day 1 + 3 from day 2
+        total_count_result = execute_query(db_url, "SELECT COUNT(*) FROM multi_date_data")
+        assert total_count_result[0][0] == 5  # 2 from day 1 + 3 from day 2
 
         # Re-sync day 1 with only ID 1 (removing ID 2)
         with open(csv_file_1, "w", newline="", encoding="utf-8") as f:
@@ -409,11 +434,16 @@ jobs:
         sync_csv_to_postgres(csv_file_1, job, db_url, sync_date_1)
 
         # Verify: Day 1 should have 1 record, Day 2 should still have 3
-        with psycopg.connect(db_url) as conn, conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM multi_date_data WHERE sync_date = '2024-01-15'")
-            day1_count = cur.fetchone()[0]
-            assert day1_count == 1
+        day1_count_result = execute_query(
+            db_url,
+            "SELECT COUNT(*) FROM multi_date_data WHERE sync_date = %s",
+            ("2024-01-15",),
+        )
+        assert day1_count_result[0][0] == 1
 
-            cur.execute("SELECT COUNT(*) FROM multi_date_data WHERE sync_date = '2024-01-16'")
-            day2_count = cur.fetchone()[0]
-            assert day2_count == 3  # Day 2 data unchanged
+        day2_count_result = execute_query(
+            db_url,
+            "SELECT COUNT(*) FROM multi_date_data WHERE sync_date = %s",
+            ("2024-01-16",),
+        )
+        assert day2_count_result[0][0] == 3  # Day 2 data unchanged

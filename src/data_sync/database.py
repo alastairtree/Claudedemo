@@ -143,12 +143,15 @@ class DatabaseConnection:
         if self.backend:
             self.backend.close()
 
-    def create_table_if_not_exists(self, table_name: str, columns: dict[str, str]) -> None:
+    def create_table_if_not_exists(
+        self, table_name: str, columns: dict[str, str], primary_keys: list[str] | None = None
+    ) -> None:
         """Create table if it doesn't exist.
 
         Args:
             table_name: Name of the table
-            columns: Dictionary of column_name -> column_type
+            columns: Dictionary of column_name -> column_type (without PRIMARY KEY constraint)
+            primary_keys: Optional list of column names that form the primary key
         """
         if not self.backend:
             raise RuntimeError("Database connection not established")
@@ -161,6 +164,13 @@ class DatabaseConnection:
                     sql.SQL("{} {}").format(sql.Identifier(col_name), sql.SQL(col_type))
                 )
 
+            # Add primary key constraint if specified
+            if primary_keys:
+                pk_constraint = sql.SQL("PRIMARY KEY ({})").format(
+                    sql.SQL(", ").join(sql.Identifier(pk) for pk in primary_keys)
+                )
+                column_defs.append(pk_constraint)
+
             query = sql.SQL("CREATE TABLE IF NOT EXISTS {} ({})").format(
                 sql.Identifier(table_name), sql.SQL(", ").join(column_defs)
             )
@@ -170,17 +180,25 @@ class DatabaseConnection:
             column_defs_str = ", ".join(
                 f'"{col_name}" {col_type}' for col_name, col_type in columns.items()
             )
+
+            # Add primary key constraint if specified
+            if primary_keys:
+                pk_columns = ", ".join(f'"{pk}"' for pk in primary_keys)
+                column_defs_str += f", PRIMARY KEY ({pk_columns})"
+
             query = f'CREATE TABLE IF NOT EXISTS "{table_name}" ({column_defs_str})'
             self.backend.execute(query)
 
         self.backend.commit()
 
-    def upsert_row(self, table_name: str, id_column: str, row_data: dict[str, Any]) -> None:
+    def upsert_row(
+        self, table_name: str, conflict_columns: list[str], row_data: dict[str, Any]
+    ) -> None:
         """Upsert a row into the database.
 
         Args:
             table_name: Name of the table
-            id_column: Name of the ID column for conflict resolution
+            conflict_columns: List of column names for conflict resolution (primary key columns)
             row_data: Dictionary of column_name -> value
         """
         if not self.backend:
@@ -197,11 +215,11 @@ class DatabaseConnection:
                 sql.Identifier(table_name),
                 sql.SQL(", ").join(sql.Identifier(col) for col in columns),
                 sql.SQL(", ").join(sql.Placeholder() * len(values)),
-                sql.Identifier(id_column),
+                sql.SQL(", ").join(sql.Identifier(col) for col in conflict_columns),
                 sql.SQL(", ").join(
                     sql.SQL("{} = EXCLUDED.{}").format(sql.Identifier(col), sql.Identifier(col))
                     for col in columns
-                    if col != id_column
+                    if col not in conflict_columns
                 ),
             )
             self.backend.execute(insert_query.as_string(self.backend.conn), values)  # type: ignore
@@ -210,11 +228,14 @@ class DatabaseConnection:
             columns_str = ", ".join(f'"{col}"' for col in columns)
             placeholders = ", ".join("?" * len(values))
             update_str = ", ".join(
-                f'"{col}" = excluded."{col}"' for col in columns if col != id_column
+                f'"{col}" = excluded."{col}"' for col in columns if col not in conflict_columns
             )
 
+            # SQLite ON CONFLICT clause with multiple columns
+            conflict_cols_str = ", ".join(f'"{col}"' for col in conflict_columns)
+
             query = f'INSERT INTO "{table_name}" ({columns_str}) VALUES ({placeholders}) '
-            query += f'ON CONFLICT ("{id_column}") DO UPDATE SET {update_str}'
+            query += f"ON CONFLICT ({conflict_cols_str}) DO UPDATE SET {update_str}"
 
             self.backend.execute(query, values)
 
@@ -333,7 +354,7 @@ class DatabaseConnection:
                         sync_columns.append(type(job.id_mapping)(csv_col, csv_col))
 
             # Create table with all needed columns (TEXT type for simplicity)
-            columns_def = {job.id_mapping.db_column: "TEXT PRIMARY KEY"}
+            columns_def = {job.id_mapping.db_column: "TEXT"}
             for col_mapping in sync_columns:
                 if col_mapping.db_column != job.id_mapping.db_column:
                     columns_def[col_mapping.db_column] = "TEXT"
@@ -342,7 +363,15 @@ class DatabaseConnection:
             if job.date_mapping:
                 columns_def[job.date_mapping.db_column] = "TEXT"
 
-            self.create_table_if_not_exists(job.target_table, columns_def)
+            # Determine primary key columns
+            if job.date_mapping:
+                # Composite primary key: (id_column, date_column)
+                primary_keys = [job.id_mapping.db_column, job.date_mapping.db_column]
+            else:
+                # Single column primary key
+                primary_keys = [job.id_mapping.db_column]
+
+            self.create_table_if_not_exists(job.target_table, columns_def, primary_keys)
 
             # Process each row
             for row in reader:
@@ -355,7 +384,7 @@ class DatabaseConnection:
                 if job.date_mapping and sync_date:
                     row_data[job.date_mapping.db_column] = sync_date
 
-                self.upsert_row(job.target_table, job.id_mapping.db_column, row_data)
+                self.upsert_row(job.target_table, primary_keys, row_data)
 
                 # Track synced IDs for cleanup
                 synced_ids.add(row_data[job.id_mapping.db_column])
