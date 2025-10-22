@@ -255,3 +255,115 @@ class TestSuggestIndexes:
         indexes = suggest_indexes(columns, "id")
 
         assert len(indexes) == 0
+
+
+class TestDryRunCommand:
+    """Test suite for dry-run functionality."""
+
+    def test_sync_help_includes_dry_run(self, cli_runner: CliRunner) -> None:
+        """Test that sync command help includes --dry-run option."""
+        result = cli_runner.invoke(main, ["sync", "--help"])
+        assert result.exit_code == 0
+        assert "--dry-run" in result.output
+        assert "Simulate the sync without making" in result.output
+
+    def test_sync_dry_run_flag_with_sqlite(self, cli_runner: CliRunner, tmp_path: Path) -> None:
+        """Test sync with --dry-run flag using SQLite."""
+        # Create a simple CSV file
+        csv_file = tmp_path / "test.csv"
+        with open(csv_file, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["id", "name", "value"])
+            writer.writeheader()
+            writer.writerow({"id": "1", "name": "Alice", "value": "100"})
+            writer.writerow({"id": "2", "name": "Bob", "value": "200"})
+
+        # Create a config file
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: test_table
+    id_mapping:
+      id: id
+""")
+
+        # Create an SQLite database URL
+        db_file = tmp_path / "test.db"
+        db_url = f"sqlite:///{db_file}"
+
+        # Run sync with dry-run flag
+        result = cli_runner.invoke(
+            main,
+            [
+                "sync",
+                str(csv_file),
+                str(config_file),
+                "test_job",
+                "--db-url",
+                db_url,
+                "--dry-run",
+            ],
+        )
+
+        # Check that dry-run executed successfully
+        assert result.exit_code == 0
+        assert "DRY RUN" in result.output
+        assert "Dry-run Summary" in result.output
+        assert "would be inserted/updated" in result.output
+        assert "no changes made to database" in result.output
+
+        # Verify database was not modified (table should not exist)
+        assert not db_file.exists()
+
+    def test_sync_without_dry_run_creates_data(self, cli_runner: CliRunner, tmp_path: Path) -> None:
+        """Test that regular sync (without --dry-run) creates data."""
+        # Create a simple CSV file
+        csv_file = tmp_path / "test.csv"
+        with open(csv_file, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["id", "name"])
+            writer.writeheader()
+            writer.writerow({"id": "1", "name": "Alice"})
+
+        # Create a config file
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: test_table
+    id_mapping:
+      id: id
+""")
+
+        # Create an SQLite database URL
+        db_file = tmp_path / "test.db"
+        db_url = f"sqlite:///{db_file}"
+
+        # Run sync WITHOUT dry-run flag
+        result = cli_runner.invoke(
+            main,
+            [
+                "sync",
+                str(csv_file),
+                str(config_file),
+                "test_job",
+                "--db-url",
+                db_url,
+            ],
+        )
+
+        # Check that sync executed successfully
+        assert result.exit_code == 0
+        assert "Successfully synced" in result.output
+
+        # Verify database was created and contains data
+        assert db_file.exists()
+
+        import sqlite3
+
+        conn = sqlite3.connect(db_file)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM test_table")
+        count = cursor.fetchone()[0]
+        assert count == 1
+        cursor.close()
+        conn.close()
