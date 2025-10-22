@@ -260,3 +260,71 @@ class SyncConfig:
             columns=columns if columns else None,
             date_mapping=date_mapping,
         )
+
+    def add_or_update_job(self, job: SyncJob, force: bool = False) -> bool:
+        """Add a new job or update an existing one.
+
+        Args:
+            job: SyncJob to add or update
+            force: If True, overwrite existing job. If False, raise error if job exists.
+
+        Returns:
+            True if job was added/updated
+
+        Raises:
+            ValueError: If job already exists and force=False
+        """
+        if job.name in self.jobs and not force:
+            raise ValueError(f"Job '{job.name}' already exists. Use force=True to overwrite.")
+
+        self.jobs[job.name] = job
+        return True
+
+    def to_yaml_dict(self) -> dict[str, Any]:
+        """Convert config to dictionary suitable for YAML serialization.
+
+        Returns:
+            Dictionary representation of config
+        """
+        jobs_dict = {}
+
+        for job_name, job in self.jobs.items():
+            job_dict: dict[str, Any] = {
+                "target_table": job.target_table,
+                "id_mapping": {job.id_mapping.csv_column: job.id_mapping.db_column},
+            }
+
+            # Add columns if present
+            if job.columns:
+                columns_dict = {}
+                for col in job.columns:
+                    if col.data_type:
+                        columns_dict[col.csv_column] = {
+                            "db_column": col.db_column,
+                            "type": col.data_type,
+                        }
+                    else:
+                        columns_dict[col.csv_column] = col.db_column
+                job_dict["columns"] = columns_dict
+
+            # Add date_mapping if present
+            if job.date_mapping:
+                job_dict["date_mapping"] = {
+                    "filename_regex": job.date_mapping.filename_regex,
+                    "db_column": job.date_mapping.db_column,
+                }
+
+            jobs_dict[job_name] = job_dict
+
+        return {"jobs": jobs_dict}
+
+    def save_to_yaml(self, config_path: Path) -> None:
+        """Save configuration to a YAML file.
+
+        Args:
+            config_path: Path to save the YAML file
+        """
+        config_dict = self.to_yaml_dict()
+
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)
