@@ -16,6 +16,7 @@ Sync CSV and CDF science files into PostgreSQL database using configuration-base
 - **Compound Primary Keys**: Support for multi-column primary keys
 - **Database Indexes**: Define indexes with custom sort orders
 - **Automatic Index Suggestions**: Prepare command suggests indexes based on column types
+- **Dry-Run Mode**: Preview all changes without modifying the database
 - **Idempotent Operations**: Safe to run multiple times, uses upsert
 - **Multi-Database Support**: Works with PostgreSQL and SQLite
 - **Modern Python**: Built for Python 3.11+ with full type hints
@@ -168,6 +169,9 @@ data-sync sync <csv_file> <config_file> <job_name> --db-url <connection_string>
 export DATABASE_URL="postgresql://localhost/mydb"
 data-sync sync data.csv config.yaml my_job
 
+# Dry-run mode (preview changes without modifying database)
+data-sync sync data.csv config.yaml my_job --dry-run
+
 # Show help
 data-sync --help
 data-sync sync --help
@@ -175,6 +179,26 @@ data-sync sync --help
 # Show version
 data-sync --version
 ```
+
+#### Dry-Run Mode
+
+The `--dry-run` flag allows you to preview what changes would be made without actually modifying the database:
+
+```bash
+data-sync sync sales_2024-01-15.csv config.yaml daily_sales --dry-run
+```
+
+**What it reports:**
+- Schema changes (new tables, columns, indexes)
+- Number of rows that would be inserted/updated
+- Number of stale rows that would be deleted
+- All without making any database modifications
+
+**Use cases:**
+- Test configuration files before running actual syncs
+- Preview schema changes when adding new columns
+- Estimate data impact before large syncs
+- Debug sync jobs safely
 
 ### Key Features
 
@@ -475,13 +499,13 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [x] Selective column syncing
 - [x] Idempotent upsert operations
 - [x] Integration tests with real PostgreSQL
+- [x] Dry-run mode
 - [ ] Support for CDF science files
 - [ ] Data validation and transformation
 - [ ] Support for batch processing multiple files
 - [ ] Add progress bars for large files
 - [ ] Transaction management and rollback
 - [ ] Schema migration support
-- [ ] Dry-run mode
 
 ## Support
 
