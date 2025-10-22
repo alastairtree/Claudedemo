@@ -41,7 +41,9 @@ def postgres_container():
 @pytest.fixture
 def db_url(postgres_container):
     """Provide database connection URL."""
-    return postgres_container.get_connection_url()
+    # Get URL with driver=None to get standard postgresql:// format
+    # psycopg3 expects postgresql:// not psycopg2://
+    return postgres_container.get_connection_url(driver=None)
 
 
 class TestDatabaseIntegration:
