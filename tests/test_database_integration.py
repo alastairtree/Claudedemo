@@ -111,9 +111,7 @@ def get_table_columns(db_url: str, table_name: str) -> list[str]:
 class TestDatabaseIntegration:
     """Integration tests with SQLite and PostgreSQL databases."""
 
-    def test_sync_csv_with_column_mapping_and_exclusion(
-        self, tmp_path: Path, db_url: str
-    ) -> None:
+    def test_sync_csv_with_column_mapping_and_exclusion(self, tmp_path: Path, db_url: str) -> None:
         """Test syncing CSV with renamed column and excluded column.
 
         This test verifies:
@@ -379,9 +377,7 @@ jobs:
         assert rows[0] == ("1", "A_updated")
         assert rows[1] == ("2", "B_updated")
 
-    def test_delete_stale_records_preserves_other_dates(
-        self, tmp_path: Path, db_url: str
-    ) -> None:
+    def test_delete_stale_records_preserves_other_dates(self, tmp_path: Path, db_url: str) -> None:
         """Test that deleting stale records only affects matching date."""
         config_file = tmp_path / "config.yaml"
         config_file.write_text(r"""
@@ -421,11 +417,11 @@ jobs:
         sync_date_2 = job.date_mapping.extract_date_from_filename(csv_file_2)
         sync_csv_to_postgres(csv_file_2, job, db_url, sync_date_2)
 
-        # Verify total records
+        # Verify total records (IDs 1,2 were updated to day 2, ID 3 was inserted)
         total_count_result = execute_query(db_url, "SELECT COUNT(*) FROM multi_date_data")
-        assert total_count_result[0][0] == 5  # 2 from day 1 + 3 from day 2
+        assert total_count_result[0][0] == 3
 
-        # Re-sync day 1 with only ID 1 (removing ID 2)
+        # Re-sync day 1 with only ID 1 (updating it back to day 1)
         with open(csv_file_1, "w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=["id", "value"])
             writer.writeheader()
@@ -433,17 +429,17 @@ jobs:
 
         sync_csv_to_postgres(csv_file_1, job, db_url, sync_date_1)
 
-        # Verify: Day 1 should have 1 record, Day 2 should still have 3
+        # Verify: ID 1 updated back to day 1, IDs 2 and 3 still on day 2
         day1_count_result = execute_query(
             db_url,
             "SELECT COUNT(*) FROM multi_date_data WHERE sync_date = %s",
             ("2024-01-15",),
         )
-        assert day1_count_result[0][0] == 1
+        assert day1_count_result[0][0] == 1  # Only ID 1
 
         day2_count_result = execute_query(
             db_url,
             "SELECT COUNT(*) FROM multi_date_data WHERE sync_date = %s",
             ("2024-01-16",),
         )
-        assert day2_count_result[0][0] == 3  # Day 2 data unchanged
+        assert day2_count_result[0][0] == 2  # IDs 2 and 3

@@ -363,13 +363,8 @@ class DatabaseConnection:
             if job.date_mapping:
                 columns_def[job.date_mapping.db_column] = "TEXT"
 
-            # Determine primary key columns
-            if job.date_mapping:
-                # Composite primary key: (id_column, date_column)
-                primary_keys = [job.id_mapping.db_column, job.date_mapping.db_column]
-            else:
-                # Single column primary key
-                primary_keys = [job.id_mapping.db_column]
+            # Primary key is always based on id_mapping only (date is NOT part of primary key)
+            primary_keys = [job.id_mapping.db_column]
 
             self.create_table_if_not_exists(job.target_table, columns_def, primary_keys)
 
