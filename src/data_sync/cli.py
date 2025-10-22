@@ -58,6 +58,83 @@ def suggest_indexes(columns: dict[str, str], id_column: str) -> list[Index]:
     return indexes
 
 
+def _create_column_mappings(
+    columns: list[str], id_column: str, column_types: dict[str, str]
+) -> list[ColumnMapping]:
+    """Create column mappings for non-ID columns.
+
+    Args:
+        columns: List of all column names
+        id_column: Name of the ID column to exclude
+        column_types: Dictionary of column types
+
+    Returns:
+        List of ColumnMapping objects for non-ID columns
+    """
+    column_mappings = []
+    for col in columns:
+        if col != id_column:
+            col_type = column_types[col]
+            column_mappings.append(ColumnMapping(csv_column=col, db_column=col, data_type=col_type))
+    return column_mappings
+
+
+def _display_prepare_results(
+    job: SyncJob,
+    config: Path,
+    id_column: str,
+    column_types: dict[str, str],
+    column_mappings: list[ColumnMapping],
+    suggested_indexes: list[Index],
+) -> None:
+    """Display the results of the prepare command.
+
+    Args:
+        job: The created SyncJob
+        config: Path to config file
+        id_column: Name of the ID column
+        column_types: Dictionary of column types
+        column_mappings: List of column mappings (excluding ID)
+        suggested_indexes: List of suggested indexes
+    """
+    console.print("[green]✓ Job configuration created successfully![/green]")
+    console.print(f"[dim]  Config file: {config}[/dim]")
+    console.print(f"[dim]  Job name: {job.name}[/dim]")
+    console.print(f"[dim]  Target table: {job.target_table}[/dim]")
+
+    # Display column mappings in a table
+    table = Table(title="Column Mappings")
+    table.add_column("CSV Column", style="cyan")
+    table.add_column("DB Column", style="green")
+    table.add_column("Type", style="yellow")
+
+    # Add ID mapping
+    table.add_row(id_column, "id", column_types[id_column] + " (ID)")
+
+    # Add other columns
+    for col_mapping in column_mappings:
+        table.add_row(
+            col_mapping.csv_column, col_mapping.db_column, col_mapping.data_type or "text"
+        )
+
+    console.print(table)
+
+    # Display suggested indexes if any
+    if suggested_indexes:
+        index_table = Table(title="Suggested Indexes")
+        index_table.add_column("Index Name", style="cyan")
+        index_table.add_column("Column", style="green")
+        index_table.add_column("Order", style="yellow")
+
+        for index in suggested_indexes:
+            for idx_col in index.columns:
+                index_table.add_row(index.name, idx_col.column, idx_col.order)
+
+        console.print(index_table)
+
+    console.print("[dim]Review the configuration and adjust as needed before syncing.[/dim]")
+
+
 @click.group()
 @click.version_option(version=__version__)
 @click.pass_context
@@ -190,16 +267,8 @@ def prepare(file_path: Path, config: Path, job: str, force: bool) -> None:
         id_column = suggest_id_column(columns, sync_config.id_column_matchers)
         console.print(f"[dim]  Suggested ID column: {id_column}[/dim]")
 
-        # Create column mappings for non-ID columns
-        column_mappings = []
-        for col in columns:
-            if col != id_column:
-                col_type = column_types[col]
-                column_mappings.append(
-                    ColumnMapping(csv_column=col, db_column=col, data_type=col_type)
-                )
-
-        # Suggest indexes based on column types and names
+        # Create column mappings and suggest indexes
+        column_mappings = _create_column_mappings(columns, id_column, column_types)
         suggested_indexes = suggest_indexes(column_types, id_column)
         console.print(f"[dim]  Suggested {len(suggested_indexes)} index(es)[/dim]")
 
@@ -220,46 +289,11 @@ def prepare(file_path: Path, config: Path, job: str, force: bool) -> None:
             console.print("[dim]Use --force to overwrite the existing job[/dim]")
             raise click.Abort() from e
 
-        # Save config
+        # Save config and display results
         sync_config.save_to_yaml(config)
-
-        # Display the generated config
-        console.print("[green]✓ Job configuration created successfully![/green]")
-        console.print(f"[dim]  Config file: {config}[/dim]")
-        console.print(f"[dim]  Job name: {job}[/dim]")
-        console.print(f"[dim]  Target table: {new_job.target_table}[/dim]")
-
-        # Display column mappings in a table
-        table = Table(title="Column Mappings")
-        table.add_column("CSV Column", style="cyan")
-        table.add_column("DB Column", style="green")
-        table.add_column("Type", style="yellow")
-
-        # Add ID mapping
-        table.add_row(id_column, "id", column_types[id_column] + " (ID)")
-
-        # Add other columns
-        for col_mapping in column_mappings:
-            table.add_row(
-                col_mapping.csv_column, col_mapping.db_column, col_mapping.data_type or "text"
-            )
-
-        console.print(table)
-
-        # Display suggested indexes if any
-        if suggested_indexes:
-            index_table = Table(title="Suggested Indexes")
-            index_table.add_column("Index Name", style="cyan")
-            index_table.add_column("Column", style="green")
-            index_table.add_column("Order", style="yellow")
-
-            for index in suggested_indexes:
-                for idx_col in index.columns:
-                    index_table.add_row(index.name, idx_col.column, idx_col.order)
-
-            console.print(index_table)
-
-        console.print("[dim]Review the configuration and adjust as needed before syncing.[/dim]")
+        _display_prepare_results(
+            new_job, config, id_column, column_types, column_mappings, suggested_indexes
+        )
 
     except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")

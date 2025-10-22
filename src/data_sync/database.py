@@ -529,6 +529,149 @@ class DatabaseConnection:
             raise RuntimeError("Database connection not established")
         self.backend.create_index(table_name, index_name, columns)
 
+    def _validate_id_columns(self, job: SyncJob, csv_columns: set[str]) -> set[str]:
+        """Validate that required ID columns exist in CSV.
+
+        Args:
+            job: SyncJob configuration
+            csv_columns: Set of column names from CSV
+
+        Returns:
+            Set of ID column names from CSV
+
+        Raises:
+            ValueError: If any ID column is missing from CSV
+        """
+        id_csv_columns = set()
+        for id_col in job.id_mapping:
+            if id_col.csv_column not in csv_columns:
+                raise ValueError(f"ID column '{id_col.csv_column}' not found in CSV")
+            id_csv_columns.add(id_col.csv_column)
+        return id_csv_columns
+
+    def _determine_sync_columns(
+        self, job: SyncJob, csv_columns: set[str], id_csv_columns: set[str]
+    ) -> list[Any]:
+        """Determine which columns to sync based on job configuration.
+
+        Args:
+            job: SyncJob configuration
+            csv_columns: Set of column names from CSV
+            id_csv_columns: Set of ID column names
+
+        Returns:
+            List of ColumnMapping objects for columns to sync
+
+        Raises:
+            ValueError: If a configured column is missing from CSV
+        """
+        if job.columns:
+            # Specific columns defined
+            sync_columns = list(job.id_mapping) + job.columns
+            for col_mapping in job.columns:
+                if col_mapping.csv_column not in csv_columns:
+                    raise ValueError(f"Column '{col_mapping.csv_column}' not found in CSV")
+        else:
+            # Sync all columns
+            from data_sync.config import ColumnMapping
+
+            sync_columns = list(job.id_mapping)
+            for csv_col in csv_columns:
+                if csv_col not in id_csv_columns:
+                    sync_columns.append(ColumnMapping(csv_col, csv_col))
+
+        return sync_columns
+
+    def _build_column_definitions(self, sync_columns: list[Any], job: SyncJob) -> dict[str, str]:
+        """Build column definitions with SQL types.
+
+        Args:
+            sync_columns: List of ColumnMapping objects
+            job: SyncJob configuration
+
+        Returns:
+            Dictionary mapping column names to SQL types
+        """
+        columns_def = {}
+        for col_mapping in sync_columns:
+            sql_type = self.backend.map_data_type(col_mapping.data_type)
+            columns_def[col_mapping.db_column] = sql_type
+
+        # Add date column if date_mapping is configured
+        if job.date_mapping:
+            columns_def[job.date_mapping.db_column] = "TEXT"
+
+        return columns_def
+
+    def _setup_table_schema(
+        self, job: SyncJob, columns_def: dict[str, str], primary_keys: list[str]
+    ) -> None:
+        """Create table and add missing columns/indexes.
+
+        Args:
+            job: SyncJob configuration
+            columns_def: Dictionary mapping column names to SQL types
+            primary_keys: List of primary key column names
+        """
+        # Create table if it doesn't exist
+        self.create_table_if_not_exists(job.target_table, columns_def, primary_keys)
+
+        # Check for schema evolution: add missing columns from config
+        existing_columns = self.get_existing_columns(job.target_table)
+        for col_name, col_type in columns_def.items():
+            if col_name.lower() not in existing_columns:
+                self.add_column(job.target_table, col_name, col_type)
+
+        # Create indexes that don't already exist
+        if job.indexes:
+            existing_indexes = self.get_existing_indexes(job.target_table)
+            for index in job.indexes:
+                if index.name.lower() not in existing_indexes:
+                    index_columns = [(col.column, col.order) for col in index.columns]
+                    self.create_index(job.target_table, index.name, index_columns)
+
+    def _process_csv_rows(
+        self,
+        reader: Any,
+        job: SyncJob,
+        sync_columns: list[Any],
+        primary_keys: list[str],
+        sync_date: str | None,
+    ) -> tuple[int, set[str]]:
+        """Process and upsert CSV rows into database.
+
+        Args:
+            reader: CSV DictReader
+            job: SyncJob configuration
+            sync_columns: List of ColumnMapping objects
+            primary_keys: List of primary key column names
+            sync_date: Optional date value to store in date column
+
+        Returns:
+            Tuple of (rows_synced, synced_ids)
+        """
+        rows_synced = 0
+        synced_ids = set()
+
+        for row in reader:
+            row_data = {}
+            for col_mapping in sync_columns:
+                if col_mapping.csv_column in row:
+                    row_data[col_mapping.db_column] = row[col_mapping.csv_column]
+
+            # Add sync date if configured
+            if job.date_mapping and sync_date:
+                row_data[job.date_mapping.db_column] = sync_date
+
+            self.upsert_row(job.target_table, primary_keys, row_data)
+
+            # Track synced IDs for cleanup (use first ID column for cleanup tracking)
+            first_id_column = job.id_mapping[0].db_column
+            synced_ids.add(row_data[first_id_column])
+            rows_synced += 1
+
+        return rows_synced, synced_ids
+
     def sync_csv_file(self, csv_path: Path, job: SyncJob, sync_date: str | None = None) -> int:
         """Sync a CSV file to the database using job configuration.
 
@@ -547,89 +690,29 @@ class DatabaseConnection:
         if not csv_path.exists():
             raise FileNotFoundError(f"CSV file not found: {csv_path}")
 
-        rows_synced = 0
-        synced_ids = set()
-
         with open(csv_path, encoding="utf-8") as f:
             reader = csv.DictReader(f)
 
             if not reader.fieldnames:
                 raise ValueError("CSV file has no columns")
 
-            # Validate that required ID columns exist in CSV
             csv_columns = set(reader.fieldnames)
-            id_csv_columns = set()
-            for id_col in job.id_mapping:
-                if id_col.csv_column not in csv_columns:
-                    raise ValueError(f"ID column '{id_col.csv_column}' not found in CSV")
-                id_csv_columns.add(id_col.csv_column)
 
-            # Determine which columns to sync
-            if job.columns:
-                # Specific columns defined
-                sync_columns = list(job.id_mapping) + job.columns
-                for col_mapping in job.columns:
-                    if col_mapping.csv_column not in csv_columns:
-                        raise ValueError(f"Column '{col_mapping.csv_column}' not found in CSV")
-            else:
-                # Sync all columns
-                sync_columns = list(job.id_mapping)
-                for csv_col in csv_columns:
-                    if csv_col not in id_csv_columns:
-                        # Create ColumnMapping instance for non-ID columns
-                        from data_sync.config import ColumnMapping
+            # Validate and determine columns to sync
+            id_csv_columns = self._validate_id_columns(job, csv_columns)
+            sync_columns = self._determine_sync_columns(job, csv_columns, id_csv_columns)
 
-                        sync_columns.append(ColumnMapping(csv_col, csv_col))
-
-            # Build column definitions with types from config
-            columns_def = {}
-            for col_mapping in sync_columns:
-                sql_type = self.backend.map_data_type(col_mapping.data_type)
-                columns_def[col_mapping.db_column] = sql_type
-
-            # Add date column if date_mapping is configured
-            if job.date_mapping:
-                columns_def[job.date_mapping.db_column] = "TEXT"
-
-            # Primary key is always based on id_mapping (supports compound keys)
+            # Build schema and setup table
+            columns_def = self._build_column_definitions(sync_columns, job)
             primary_keys = [id_col.db_column for id_col in job.id_mapping]
+            self._setup_table_schema(job, columns_def, primary_keys)
 
-            self.create_table_if_not_exists(job.target_table, columns_def, primary_keys)
-
-            # Check for schema evolution: add missing columns from config
-            existing_columns = self.get_existing_columns(job.target_table)
-            for col_name, col_type in columns_def.items():
-                if col_name.lower() not in existing_columns:
-                    self.add_column(job.target_table, col_name, col_type)
-
-            # Create indexes that don't already exist
-            if job.indexes:
-                existing_indexes = self.get_existing_indexes(job.target_table)
-                for index in job.indexes:
-                    if index.name.lower() not in existing_indexes:
-                        index_columns = [(col.column, col.order) for col in index.columns]
-                        self.create_index(job.target_table, index.name, index_columns)
-
-            # Process each row
-            for row in reader:
-                row_data = {}
-                for col_mapping in sync_columns:
-                    if col_mapping.csv_column in row:
-                        row_data[col_mapping.db_column] = row[col_mapping.csv_column]
-
-                # Add sync date if configured
-                if job.date_mapping and sync_date:
-                    row_data[job.date_mapping.db_column] = sync_date
-
-                self.upsert_row(job.target_table, primary_keys, row_data)
-
-                # Track synced IDs for cleanup (use first ID column for cleanup tracking)
-                first_id_column = job.id_mapping[0].db_column
-                synced_ids.add(row_data[first_id_column])
-                rows_synced += 1
+            # Process CSV rows
+            rows_synced, synced_ids = self._process_csv_rows(
+                reader, job, sync_columns, primary_keys, sync_date
+            )
 
         # Clean up stale records if date_mapping is configured
-        # Note: cleanup uses only the first ID column for simplicity
         if job.date_mapping and sync_date:
             first_id_column = job.id_mapping[0].db_column
             self.delete_stale_records(
