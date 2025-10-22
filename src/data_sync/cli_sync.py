@@ -42,7 +42,7 @@ def sync(file_path: Path, config: Path, job: str, db_url: str, dry_run: bool) ->
         # Using environment variable
         export DATABASE_URL=postgresql://localhost/mydb
         data-sync sync data.csv config.yaml my_job
-        
+
         # Dry-run mode to preview changes
         data-sync sync data.csv config.yaml my_job --dry-run
     """
@@ -72,43 +72,55 @@ def sync(file_path: Path, config: Path, job: str, db_url: str, dry_run: bool) ->
 
         # Perform sync or dry-run
         if dry_run:
-            console.print(f"[cyan]DRY RUN: Simulating sync of {file_path.name} using job '{job}'...[/cyan]")
+            console.print(
+                f"[cyan]DRY RUN: Simulating sync of {file_path.name} using job '{job}'...[/cyan]"
+            )
             summary = sync_csv_to_postgres_dry_run(file_path, sync_job, db_url, sync_date)
-            
+
             # Display dry-run summary
-            console.print(f"\n[bold yellow]Dry-run Summary[/bold yellow]")
+            console.print("\n[bold yellow]Dry-run Summary[/bold yellow]")
             console.print(f"[dim]{'─' * 60}[/dim]")
-            
+
             # Schema changes
             if not summary.table_exists:
                 console.print(f"[yellow]  • Table '{summary.table_name}' would be CREATED[/yellow]")
             else:
                 console.print(f"[green]  • Table '{summary.table_name}' exists[/green]")
-                
+
                 if summary.new_columns:
-                    console.print(f"[yellow]  • {len(summary.new_columns)} column(s) would be ADDED:[/yellow]")
+                    console.print(
+                        f"[yellow]  • {len(summary.new_columns)} column(s) would be ADDED:[/yellow]"
+                    )
                     for col_name, col_type in summary.new_columns:
                         console.print(f"[dim]      - {col_name} ({col_type})[/dim]")
                 else:
-                    console.print(f"[green]  • No new columns needed[/green]")
-                
+                    console.print("[green]  • No new columns needed[/green]")
+
                 if summary.new_indexes:
-                    console.print(f"[yellow]  • {len(summary.new_indexes)} index(es) would be CREATED:[/yellow]")
+                    console.print(
+                        f"[yellow]  • {len(summary.new_indexes)} index(es) would be CREATED:[/yellow]"
+                    )
                     for idx_name in summary.new_indexes:
                         console.print(f"[dim]      - {idx_name}[/dim]")
                 else:
-                    console.print(f"[green]  • No new indexes needed[/green]")
-            
+                    console.print("[green]  • No new indexes needed[/green]")
+
             # Data changes
-            console.print(f"\n[bold]Data Changes:[/bold]")
-            console.print(f"[green]  • {summary.rows_to_sync} row(s) would be inserted/updated[/green]")
-            
+            console.print("\n[bold]Data Changes:[/bold]")
+            console.print(
+                f"[green]  • {summary.rows_to_sync} row(s) would be inserted/updated[/green]"
+            )
+
             if sync_date and summary.rows_to_delete > 0:
-                console.print(f"[yellow]  • {summary.rows_to_delete} stale row(s) would be deleted[/yellow]")
+                console.print(
+                    f"[yellow]  • {summary.rows_to_delete} stale row(s) would be deleted[/yellow]"
+                )
             elif sync_date:
-                console.print(f"[green]  • No stale rows to delete[/green]")
-            
-            console.print(f"\n[bold green]✓ Dry-run complete - no changes made to database[/bold green]")
+                console.print("[green]  • No stale rows to delete[/green]")
+
+            console.print(
+                "\n[bold green]✓ Dry-run complete - no changes made to database[/bold green]"
+            )
             console.print(f"[dim]  File: {file_path}[/dim]")
             if sync_date:
                 console.print(f"[dim]  Date: {sync_date}[/dim]")
