@@ -7,11 +7,55 @@ from rich.console import Console
 from rich.table import Table
 
 from data_sync import __version__
-from data_sync.config import ColumnMapping, SyncConfig, SyncJob
+from data_sync.config import ColumnMapping, Index, IndexColumn, SyncConfig, SyncJob
 from data_sync.database import sync_csv_to_postgres
 from data_sync.type_detection import analyze_csv_types, suggest_id_column
 
 console = Console()
+
+
+def suggest_indexes(columns: dict[str, str], id_column: str) -> list[Index]:
+    """Suggest database indexes based on column types and names.
+
+    Args:
+        columns: Dictionary mapping column names to detected types
+        id_column: Name of the ID column (to exclude from indexing)
+
+    Returns:
+        List of suggested Index objects
+
+    Rules:
+        - Date/datetime columns get descending indexes
+        - Columns ending in '_id' or '_key' get ascending indexes
+        - ID column is excluded (already a primary key)
+    """
+    indexes = []
+
+    for col_name, col_type in columns.items():
+        # Skip the ID column (it's already a primary key)
+        if col_name == id_column:
+            continue
+
+        index_name = None
+        order = None
+
+        # Date/datetime columns get descending indexes
+        if col_type in ("date", "datetime"):
+            index_name = f"idx_{col_name}"
+            order = "DESC"
+
+        # Columns ending in _id or _key get ascending indexes
+        elif col_name.lower().endswith("_id") or col_name.lower().endswith("_key"):
+            index_name = f"idx_{col_name}"
+            order = "ASC"
+
+        # Create the index if we determined it should have one
+        if index_name and order:
+            indexes.append(
+                Index(name=index_name, columns=[IndexColumn(column=col_name, order=order)])
+            )
+
+    return indexes
 
 
 @click.group()
@@ -155,12 +199,17 @@ def prepare(file_path: Path, config: Path, job: str, force: bool) -> None:
                     ColumnMapping(csv_column=col, db_column=col, data_type=col_type)
                 )
 
+        # Suggest indexes based on column types and names
+        suggested_indexes = suggest_indexes(column_types, id_column)
+        console.print(f"[dim]  Suggested {len(suggested_indexes)} index(es)[/dim]")
+
         # Create the job
         new_job = SyncJob(
             name=job,
             target_table=job,  # Use job name as table name
             id_mapping=[ColumnMapping(csv_column=id_column, db_column="id")],
             columns=column_mappings if column_mappings else None,
+            indexes=suggested_indexes if suggested_indexes else None,
         )
 
         # Add or update job
@@ -196,6 +245,20 @@ def prepare(file_path: Path, config: Path, job: str, force: bool) -> None:
             )
 
         console.print(table)
+
+        # Display suggested indexes if any
+        if suggested_indexes:
+            index_table = Table(title="Suggested Indexes")
+            index_table.add_column("Index Name", style="cyan")
+            index_table.add_column("Column", style="green")
+            index_table.add_column("Order", style="yellow")
+
+            for index in suggested_indexes:
+                for idx_col in index.columns:
+                    index_table.add_row(index.name, idx_col.column, idx_col.order)
+
+            console.print(index_table)
+
         console.print("[dim]Review the configuration and adjust as needed before syncing.[/dim]")
 
     except FileNotFoundError as e:

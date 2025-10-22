@@ -13,7 +13,11 @@ Sync CSV and CDF science files into PostgreSQL database using configuration-base
 - **Selective Sync**: Choose which columns to sync or sync all
 - **Date-Based Syncing**: Extract dates from filenames and store in database
 - **Automatic Cleanup**: Delete stale records for specific dates after sync
+- **Compound Primary Keys**: Support for multi-column primary keys
+- **Database Indexes**: Define indexes with custom sort orders
+- **Automatic Index Suggestions**: Prepare command suggests indexes based on column types
 - **Idempotent Operations**: Safe to run multiple times, uses upsert
+- **Multi-Database Support**: Works with PostgreSQL and SQLite
 - **Modern Python**: Built for Python 3.11+ with full type hints
 - **CLI Interface**: User-friendly command-line interface using Click
 - **Rich Output**: Beautiful terminal output with Rich library
@@ -248,6 +252,92 @@ data-sync sync sales_2024-01-15_corrected.csv config.yaml daily_sales
 - Automatic cleanup of removed records for specific dates
 - Preserves data from other dates
 - Perfect for daily/weekly/monthly data updates
+
+#### Compound Primary Keys
+
+Support for multi-column primary keys when a single column isn't unique:
+
+```yaml
+jobs:
+  sales_by_store:
+    target_table: sales
+    id_mapping:
+      store_id: store_id
+      product_id: product_id
+    columns:
+      quantity: qty
+      price: price
+```
+
+This creates a compound primary key on `(store_id, product_id)`, ensuring uniqueness across both columns.
+
+#### Database Indexes
+
+Define indexes to improve query performance:
+
+```yaml
+jobs:
+  user_activity:
+    target_table: activity_log
+    id_mapping:
+      activity_id: id
+    columns:
+      user_id: user_id
+      created_at: created_at
+      action_type: action_type
+    indexes:
+      - name: idx_user_id
+        columns:
+          - column: user_id
+            order: ASC
+      - name: idx_created_at
+        columns:
+          - column: created_at
+            order: DESC
+      - name: idx_user_date
+        columns:
+          - column: user_id
+            order: ASC
+          - column: created_at
+            order: DESC
+```
+
+**Index Features:**
+- Single or multi-column indexes
+- Ascending (ASC) or descending (DESC) sort order
+- Automatically created if they don't exist
+- Works with both PostgreSQL and SQLite
+
+**Automatic Index Suggestions:**
+
+The `prepare` command automatically suggests indexes based on column types and names:
+
+```bash
+data-sync prepare activity_log.csv config.yaml user_activity
+```
+
+**Index Suggestion Rules:**
+- **Date/datetime columns**: Get descending indexes (for recent-first queries)
+- **Columns ending in `_id` or `_key`**: Get ascending indexes (for foreign key lookups)
+- **ID column**: Excluded (already a primary key)
+
+Example output:
+```
+Analyzing activity_log.csv...
+  Found 5 columns
+  Suggested ID column: activity_id
+  Suggested 3 index(es)
+
+┌──────────────────┬─────────────┬────────┐
+│ Suggested Indexes                       │
+├──────────────────┼─────────────┼────────┤
+│ idx_user_id      │ user_id     │ ASC    │
+│ idx_created_at   │ created_at  │ DESC   │
+│ idx_updated_at   │ updated_at  │ DESC   │
+└──────────────────┴─────────────┴────────┘
+```
+
+You can customize these suggestions in the generated config file before running the sync.
 
 ## Development
 

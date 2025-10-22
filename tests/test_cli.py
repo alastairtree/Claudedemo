@@ -138,3 +138,120 @@ jobs:
         result = cli_runner.invoke(main, ["sync", str(csv_file), str(config_file), "test"])
         assert result.exit_code != 0
         assert "Missing option" in result.output or "required" in result.output.lower()
+
+
+class TestSuggestIndexes:
+    """Test suite for index suggestion functionality."""
+
+    def test_suggest_indexes_for_date_columns(self) -> None:
+        """Test that date columns get descending indexes."""
+        from data_sync.cli import suggest_indexes
+
+        columns = {
+            "id": "integer",
+            "created_date": "date",
+            "updated_at": "datetime",
+            "name": "text",
+        }
+
+        indexes = suggest_indexes(columns, "id")
+
+        # Should have 2 indexes (for date and datetime columns)
+        assert len(indexes) == 2
+
+        # Find the indexes by name
+        created_idx = next(idx for idx in indexes if idx.name == "idx_created_date")
+        updated_idx = next(idx for idx in indexes if idx.name == "idx_updated_at")
+
+        # Both should be descending
+        assert created_idx.columns[0].column == "created_date"
+        assert created_idx.columns[0].order == "DESC"
+        assert updated_idx.columns[0].column == "updated_at"
+        assert updated_idx.columns[0].order == "DESC"
+
+    def test_suggest_indexes_for_id_key_columns(self) -> None:
+        """Test that columns ending in _id or _key get ascending indexes."""
+        from data_sync.cli import suggest_indexes
+
+        columns = {
+            "id": "integer",
+            "user_id": "integer",
+            "account_key": "text",
+            "name": "text",
+        }
+
+        indexes = suggest_indexes(columns, "id")
+
+        # Should have 2 indexes (for user_id and account_key)
+        assert len(indexes) == 2
+
+        # Find the indexes by name
+        user_idx = next(idx for idx in indexes if idx.name == "idx_user_id")
+        account_idx = next(idx for idx in indexes if idx.name == "idx_account_key")
+
+        # Both should be ascending
+        assert user_idx.columns[0].column == "user_id"
+        assert user_idx.columns[0].order == "ASC"
+        assert account_idx.columns[0].column == "account_key"
+        assert account_idx.columns[0].order == "ASC"
+
+    def test_suggest_indexes_excludes_id_column(self) -> None:
+        """Test that the ID column doesn't get an index."""
+        from data_sync.cli import suggest_indexes
+
+        columns = {
+            "user_id": "integer",
+            "created_at": "datetime",
+        }
+
+        indexes = suggest_indexes(columns, "user_id")
+
+        # Should only have index for created_at, not user_id
+        assert len(indexes) == 1
+        assert indexes[0].name == "idx_created_at"
+
+    def test_suggest_indexes_mixed_columns(self) -> None:
+        """Test index suggestion with mixed column types."""
+        from data_sync.cli import suggest_indexes
+
+        columns = {
+            "order_id": "integer",
+            "customer_id": "integer",
+            "product_key": "text",
+            "order_date": "date",
+            "delivery_date": "datetime",
+            "total_amount": "float",
+            "notes": "text",
+        }
+
+        indexes = suggest_indexes(columns, "order_id")
+
+        # Should have 4 indexes: customer_id, product_key, order_date, delivery_date
+        assert len(indexes) == 4
+
+        index_names = {idx.name for idx in indexes}
+        assert "idx_customer_id" in index_names
+        assert "idx_product_key" in index_names
+        assert "idx_order_date" in index_names
+        assert "idx_delivery_date" in index_names
+
+        # Check orders
+        for idx in indexes:
+            if idx.name in ["idx_order_date", "idx_delivery_date"]:
+                assert idx.columns[0].order == "DESC"
+            else:
+                assert idx.columns[0].order == "ASC"
+
+    def test_suggest_indexes_no_indexable_columns(self) -> None:
+        """Test with no columns that should be indexed."""
+        from data_sync.cli import suggest_indexes
+
+        columns = {
+            "id": "integer",
+            "name": "text",
+            "description": "text",
+        }
+
+        indexes = suggest_indexes(columns, "id")
+
+        assert len(indexes) == 0
