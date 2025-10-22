@@ -5,9 +5,9 @@
   "features": {
     "ghcr.io/devcontainers/features/docker-in-docker:2": {
       "version": "latest",
-      "dockerDashComposeVersion": "v2"
-    },
-    "ghcr.io/astral-sh/uv-devcontainer-feature/uv:latest": {}
+      "dockerDashComposeVersion": "v2",
+      "moby": false
+    }
   },
 
   "customizations": {
@@ -37,7 +37,7 @@
     }
   },
 
-  "postCreateCommand": "uv sync --all-extras",
+  "postCreateCommand": "curl -LsSf https://astral.sh/uv/install.sh | sh; uv sync --all-extras",
 
   "remoteUser": "vscode",
 
