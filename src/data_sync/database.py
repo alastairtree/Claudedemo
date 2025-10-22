@@ -1,8 +1,9 @@
 """Database operations for data_sync."""
 
 import csv
+import sqlite3
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import psycopg
 from psycopg import sql
@@ -10,27 +11,137 @@ from psycopg import sql
 from data_sync.config import SyncJob
 
 
+class DatabaseBackend(Protocol):
+    """Protocol for database backend operations."""
+
+    def execute(self, query: str, params: tuple[Any, ...] | None = None) -> None:
+        """Execute a query."""
+        ...
+
+    def fetchall(self, query: str, params: tuple[Any, ...] | None = None) -> list[tuple[Any, ...]]:
+        """Fetch all results from a query."""
+        ...
+
+    def commit(self) -> None:
+        """Commit the current transaction."""
+        ...
+
+    def close(self) -> None:
+        """Close the connection."""
+        ...
+
+
+class PostgreSQLBackend:
+    """PostgreSQL database backend."""
+
+    def __init__(self, connection_string: str) -> None:
+        """Initialize PostgreSQL connection."""
+        self.conn = psycopg.connect(connection_string)
+
+    def execute(self, query: str, params: tuple[Any, ...] | None = None) -> None:
+        """Execute a query."""
+        with self.conn.cursor() as cur:
+            if params:
+                cur.execute(query, params)
+            else:
+                cur.execute(query)
+
+    def fetchall(self, query: str, params: tuple[Any, ...] | None = None) -> list[tuple[Any, ...]]:
+        """Fetch all results from a query."""
+        with self.conn.cursor() as cur:
+            if params:
+                cur.execute(query, params)
+            else:
+                cur.execute(query)
+            return cur.fetchall()
+
+    def commit(self) -> None:
+        """Commit the current transaction."""
+        self.conn.commit()
+
+    def close(self) -> None:
+        """Close the connection."""
+        self.conn.close()
+
+
+class SQLiteBackend:
+    """SQLite database backend."""
+
+    def __init__(self, connection_string: str) -> None:
+        """Initialize SQLite connection."""
+        # Extract database path from connection string
+        # Supports: sqlite:///path/to/db.db or sqlite:///:memory:
+        if connection_string.startswith("sqlite:///"):
+            db_path = connection_string[10:]  # Remove 'sqlite:///'
+        elif connection_string.startswith("sqlite://"):
+            db_path = connection_string[9:]  # Remove 'sqlite://'
+        else:
+            db_path = connection_string
+
+        self.conn = sqlite3.connect(db_path)
+        self.cursor = self.conn.cursor()
+
+    def execute(self, query: str, params: tuple[Any, ...] | None = None) -> None:
+        """Execute a query."""
+        if params:
+            self.cursor.execute(query, params)
+        else:
+            self.cursor.execute(query)
+
+    def fetchall(self, query: str, params: tuple[Any, ...] | None = None) -> list[tuple[Any, ...]]:
+        """Fetch all results from a query."""
+        if params:
+            self.cursor.execute(query, params)
+        else:
+            self.cursor.execute(query)
+        return self.cursor.fetchall()
+
+    def commit(self) -> None:
+        """Commit the current transaction."""
+        self.conn.commit()
+
+    def close(self) -> None:
+        """Close the connection."""
+        self.cursor.close()
+        self.conn.close()
+
+
 class DatabaseConnection:
-    """PostgreSQL database connection handler."""
+    """Database connection handler supporting PostgreSQL and SQLite."""
 
     def __init__(self, connection_string: str) -> None:
         """Initialize database connection.
 
         Args:
-            connection_string: PostgreSQL connection string
+            connection_string: Database connection string
+                - PostgreSQL: postgresql://user:pass@host:port/db
+                - SQLite: sqlite:///path/to/db.db or sqlite:///:memory:
         """
         self.connection_string = connection_string
-        self.conn: psycopg.Connection[Any] | None = None
+        self.backend: DatabaseBackend | None = None
+        self.db_type = self._detect_db_type(connection_string)
+
+    def _detect_db_type(self, connection_string: str) -> str:
+        """Detect database type from connection string."""
+        if connection_string.startswith("sqlite"):
+            return "sqlite"
+        elif connection_string.startswith("postgres"):
+            return "postgresql"
+        else:
+            raise ValueError(f"Unsupported database type in connection string: {connection_string}")
 
     def __enter__(self) -> "DatabaseConnection":
         """Enter context manager."""
-        self.conn = psycopg.connect(self.connection_string)
+        if self.db_type == "sqlite":
+            self.backend = SQLiteBackend(self.connection_string)
+        else:
+            self.backend = PostgreSQLBackend(self.connection_string)
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Exit context manager."""
-        if self.conn:
-            self.conn.close()
+        if self.backend:
+            self.backend.close()
 
     def create_table_if_not_exists(self, table_name: str, columns: dict[str, str]) -> None:
         """Create table if it doesn't exist.
@@ -39,20 +150,30 @@ class DatabaseConnection:
             table_name: Name of the table
             columns: Dictionary of column_name -> column_type
         """
-        if not self.conn:
+        if not self.backend:
             raise RuntimeError("Database connection not established")
 
-        column_defs = []
-        for col_name, col_type in columns.items():
-            column_defs.append(sql.SQL("{} {}").format(sql.Identifier(col_name), sql.SQL(col_type)))
+        if self.db_type == "postgresql":
+            # Use psycopg's SQL composition for PostgreSQL
+            column_defs = []
+            for col_name, col_type in columns.items():
+                column_defs.append(
+                    sql.SQL("{} {}").format(sql.Identifier(col_name), sql.SQL(col_type))
+                )
 
-        query = sql.SQL("CREATE TABLE IF NOT EXISTS {} ({})").format(
-            sql.Identifier(table_name), sql.SQL(", ").join(column_defs)
-        )
+            query = sql.SQL("CREATE TABLE IF NOT EXISTS {} ({})").format(
+                sql.Identifier(table_name), sql.SQL(", ").join(column_defs)
+            )
+            self.backend.execute(query.as_string(self.backend.conn))  # type: ignore
+        else:
+            # SQLite: use string formatting (safe since we control table/column names)
+            column_defs_str = ", ".join(
+                f'"{col_name}" {col_type}' for col_name, col_type in columns.items()
+            )
+            query = f'CREATE TABLE IF NOT EXISTS "{table_name}" ({column_defs_str})'
+            self.backend.execute(query)
 
-        with self.conn.cursor() as cur:
-            cur.execute(query)
-        self.conn.commit()
+        self.backend.commit()
 
     def upsert_row(self, table_name: str, id_column: str, row_data: dict[str, Any]) -> None:
         """Upsert a row into the database.
@@ -62,30 +183,42 @@ class DatabaseConnection:
             id_column: Name of the ID column for conflict resolution
             row_data: Dictionary of column_name -> value
         """
-        if not self.conn:
+        if not self.backend:
             raise RuntimeError("Database connection not established")
 
         columns = list(row_data.keys())
-        values = list(row_data.values())
+        values = tuple(row_data.values())
 
-        # Build INSERT ... ON CONFLICT DO UPDATE query
-        insert_query = sql.SQL(
-            "INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) DO UPDATE SET {}"
-        ).format(
-            sql.Identifier(table_name),
-            sql.SQL(", ").join(sql.Identifier(col) for col in columns),
-            sql.SQL(", ").join(sql.Placeholder() * len(values)),
-            sql.Identifier(id_column),
-            sql.SQL(", ").join(
-                sql.SQL("{} = EXCLUDED.{}").format(sql.Identifier(col), sql.Identifier(col))
-                for col in columns
-                if col != id_column
-            ),
-        )
+        if self.db_type == "postgresql":
+            # PostgreSQL: INSERT ... ON CONFLICT DO UPDATE
+            insert_query = sql.SQL(
+                "INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) DO UPDATE SET {}"
+            ).format(
+                sql.Identifier(table_name),
+                sql.SQL(", ").join(sql.Identifier(col) for col in columns),
+                sql.SQL(", ").join(sql.Placeholder() * len(values)),
+                sql.Identifier(id_column),
+                sql.SQL(", ").join(
+                    sql.SQL("{} = EXCLUDED.{}").format(sql.Identifier(col), sql.Identifier(col))
+                    for col in columns
+                    if col != id_column
+                ),
+            )
+            self.backend.execute(insert_query.as_string(self.backend.conn), values)  # type: ignore
+        else:
+            # SQLite: INSERT ... ON CONFLICT DO UPDATE
+            columns_str = ", ".join(f'"{col}"' for col in columns)
+            placeholders = ", ".join("?" * len(values))
+            update_str = ", ".join(
+                f'"{col}" = excluded."{col}"' for col in columns if col != id_column
+            )
 
-        with self.conn.cursor() as cur:
-            cur.execute(insert_query, values)
-        self.conn.commit()
+            query = f'INSERT INTO "{table_name}" ({columns_str}) VALUES ({placeholders}) '
+            query += f'ON CONFLICT ("{id_column}") DO UPDATE SET {update_str}'
+
+            self.backend.execute(query, values)
+
+        self.backend.commit()
 
     def delete_stale_records(
         self,
@@ -110,28 +243,47 @@ class DatabaseConnection:
         Returns:
             Number of records deleted
         """
-        if not self.conn:
+        if not self.backend:
             raise RuntimeError("Database connection not established")
 
         if not current_ids:
             # If no current IDs, don't delete anything
             return 0
 
-        # Build DELETE query: DELETE FROM table WHERE date = ? AND id NOT IN (?, ?, ...)
-        delete_query = sql.SQL("DELETE FROM {} WHERE {} = %s AND {} NOT IN ({})").format(
-            sql.Identifier(table_name),
-            sql.Identifier(date_column),
-            sql.Identifier(id_column),
-            sql.SQL(", ").join(sql.Placeholder() * len(current_ids)),
-        )
+        current_ids_list = list(current_ids)
 
-        params = [sync_date] + list(current_ids)
+        if self.db_type == "postgresql":
+            # Build DELETE query for PostgreSQL
+            delete_query = sql.SQL("DELETE FROM {} WHERE {} = %s AND {} NOT IN ({})").format(
+                sql.Identifier(table_name),
+                sql.Identifier(date_column),
+                sql.Identifier(id_column),
+                sql.SQL(", ").join(sql.Placeholder() * len(current_ids)),
+            )
+            params = tuple([sync_date] + current_ids_list)
 
-        with self.conn.cursor() as cur:
-            cur.execute(delete_query, params)
-            deleted_count = cur.rowcount
-        self.conn.commit()
+            # Get count before delete
+            count_query = f'SELECT COUNT(*) FROM "{table_name}" WHERE "{date_column}" = %s AND "{id_column}" NOT IN ({", ".join(["%s"] * len(current_ids))})'
+            count_result = self.backend.fetchall(count_query, params)
+            deleted_count = count_result[0][0] if count_result else 0
 
+            # Execute delete
+            self.backend.execute(delete_query.as_string(self.backend.conn), params)  # type: ignore
+        else:
+            # SQLite: use ? placeholders
+            placeholders = ", ".join("?" * len(current_ids))
+            query = f'DELETE FROM "{table_name}" WHERE "{date_column}" = ? AND "{id_column}" NOT IN ({placeholders})'
+            params = tuple([sync_date] + current_ids_list)
+
+            # Get count before delete
+            count_query = f'SELECT COUNT(*) FROM "{table_name}" WHERE "{date_column}" = ? AND "{id_column}" NOT IN ({placeholders})'
+            count_result = self.backend.fetchall(count_query, params)
+            deleted_count = count_result[0][0] if count_result else 0
+
+            # Execute delete
+            self.backend.execute(query, params)
+
+        self.backend.commit()
         return deleted_count
 
     def sync_csv_file(self, csv_path: Path, job: SyncJob, sync_date: str | None = None) -> int:
