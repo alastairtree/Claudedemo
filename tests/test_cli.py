@@ -145,7 +145,7 @@ class TestSuggestIndexes:
 
     def test_suggest_indexes_for_date_columns(self) -> None:
         """Test that date columns get descending indexes."""
-        from data_sync.cli import suggest_indexes
+        from data_sync.cli_prepare import suggest_indexes
 
         columns = {
             "id": "integer",
@@ -171,7 +171,7 @@ class TestSuggestIndexes:
 
     def test_suggest_indexes_for_id_key_columns(self) -> None:
         """Test that columns ending in _id or _key get ascending indexes."""
-        from data_sync.cli import suggest_indexes
+        from data_sync.cli_prepare import suggest_indexes
 
         columns = {
             "id": "integer",
@@ -197,7 +197,7 @@ class TestSuggestIndexes:
 
     def test_suggest_indexes_excludes_id_column(self) -> None:
         """Test that the ID column doesn't get an index."""
-        from data_sync.cli import suggest_indexes
+        from data_sync.cli_prepare import suggest_indexes
 
         columns = {
             "user_id": "integer",
@@ -212,7 +212,7 @@ class TestSuggestIndexes:
 
     def test_suggest_indexes_mixed_columns(self) -> None:
         """Test index suggestion with mixed column types."""
-        from data_sync.cli import suggest_indexes
+        from data_sync.cli_prepare import suggest_indexes
 
         columns = {
             "order_id": "integer",
@@ -244,7 +244,7 @@ class TestSuggestIndexes:
 
     def test_suggest_indexes_no_indexable_columns(self) -> None:
         """Test with no columns that should be indexed."""
-        from data_sync.cli import suggest_indexes
+        from data_sync.cli_prepare import suggest_indexes
 
         columns = {
             "id": "integer",
