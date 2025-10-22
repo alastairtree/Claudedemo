@@ -42,16 +42,18 @@ jobs:
         include:
           # Test all Python versions on Ubuntu
           - os: ubuntu-latest
+            python-version: "3.11"
+          - os: ubuntu-latest
+            python-version: "3.12"
+          - os: ubuntu-latest
+            python-version: "3.13"
+          - os: ubuntu-latest
             python-version: "3.14"
-          - os: ubuntu-latest
-            python-version: "3.15"
-          - os: ubuntu-latest
-            python-version: "3.16"
           # Test latest Python on other OSes
           - os: windows-latest
-            python-version: "3.16"
+            python-version: "3.14"
           - os: macos-latest
-            python-version: "3.16"
+            python-version: "3.14"
 
     steps:
       - uses: actions/checkout@v4
