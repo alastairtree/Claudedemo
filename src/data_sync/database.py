@@ -13,6 +13,19 @@ from psycopg import sql
 from data_sync.config import SyncJob
 
 
+class DryRunSummary:
+    """Summary of changes that would be made during a dry-run sync."""
+
+    def __init__(self) -> None:
+        """Initialize dry-run summary."""
+        self.table_name: str = ""
+        self.table_exists: bool = False
+        self.new_columns: list[tuple[str, str]] = []
+        self.new_indexes: list[str] = []
+        self.rows_to_sync: int = 0
+        self.rows_to_delete: int = 0
+
+
 class DatabaseBackend(Protocol):
     """Protocol for database backend operations."""
 
@@ -529,6 +542,106 @@ class DatabaseConnection:
             raise RuntimeError("Database connection not established")
         self.backend.create_index(table_name, index_name, columns)
 
+    def table_exists(self, table_name: str) -> bool:
+        """Check if a table exists in the database.
+        
+        Args:
+            table_name: Name of the table to check
+            
+        Returns:
+            True if table exists, False otherwise
+        """
+        if not self.backend:
+            raise RuntimeError("Database connection not established")
+        
+        # Try to get existing columns - if it returns empty set, table doesn't exist
+        try:
+            existing_columns = self.backend.get_existing_columns(table_name)
+            # For PostgreSQL, get_existing_columns returns empty set for non-existent tables
+            # For SQLite, we need to catch the exception
+            return len(existing_columns) > 0 or self._check_table_exists_direct(table_name)
+        except Exception:
+            return False
+
+    def _check_table_exists_direct(self, table_name: str) -> bool:
+        """Direct check if table exists (fallback method).
+        
+        Args:
+            table_name: Name of the table to check
+            
+        Returns:
+            True if table exists, False otherwise
+        """
+        if not self.backend:
+            return False
+            
+        try:
+            # Try a simple query to check table existence
+            if isinstance(self.backend, PostgreSQLBackend):
+                query = """
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables 
+                        WHERE table_name = %s
+                    )
+                """
+                result = self.backend.fetchall(query, (table_name,))
+                return result[0][0] if result else False
+            elif isinstance(self.backend, SQLiteBackend):
+                query = "SELECT name FROM sqlite_master WHERE type='table' AND name=?"
+                result = self.backend.fetchall(query, (table_name,))
+                return len(result) > 0
+        except Exception:
+            return False
+        
+        return False
+
+    def count_stale_records(
+        self,
+        table_name: str,
+        id_column: str,
+        date_column: str,
+        sync_date: str,
+        current_ids: set[str],
+    ) -> int:
+        """Count records that would be deleted without actually deleting them.
+        
+        Args:
+            table_name: Name of the table
+            id_column: Name of the ID column
+            date_column: Name of the date column
+            sync_date: Date value to filter by
+            current_ids: Set of IDs from the current CSV
+            
+        Returns:
+            Count of records that would be deleted
+        """
+        if not self.backend:
+            raise RuntimeError("Database connection not established")
+            
+        if not current_ids:
+            return 0
+
+        current_ids_list = list(current_ids)
+
+        # Count records to delete
+        if isinstance(self.backend, PostgreSQLBackend):
+            count_query = sql.SQL("SELECT COUNT(*) FROM {} WHERE {} = %s AND {} NOT IN ({})").format(
+                sql.Identifier(table_name),
+                sql.Identifier(date_column),
+                sql.Identifier(id_column),
+                sql.SQL(", ").join(sql.Placeholder() * len(current_ids)),
+            )
+            params = tuple([sync_date] + current_ids_list)
+            count_result = self.backend.fetchall(count_query.as_string(self.backend.conn), params)
+        else:
+            # SQLite
+            placeholders = ", ".join("?" * len(current_ids))
+            count_query = f'SELECT COUNT(*) FROM "{table_name}" WHERE "{date_column}" = ? AND "{id_column}" NOT IN ({placeholders})'
+            params = tuple([sync_date] + current_ids_list)
+            count_result = self.backend.fetchall(count_query, params)
+        
+        return count_result[0][0] if count_result else 0
+
     def _validate_id_columns(self, job: SyncJob, csv_columns: set[str]) -> set[str]:
         """Validate that required ID columns exist in CSV.
 
@@ -672,6 +785,92 @@ class DatabaseConnection:
 
         return rows_synced, synced_ids
 
+    def sync_csv_file_dry_run(
+        self, csv_path: Path, job: SyncJob, sync_date: str | None = None
+    ) -> DryRunSummary:
+        """Simulate syncing a CSV file without making database changes.
+        
+        Args:
+            csv_path: Path to CSV file
+            job: SyncJob configuration
+            sync_date: Optional date value to store in date column for all rows
+            
+        Returns:
+            DryRunSummary with details of what would be changed
+            
+        Raises:
+            FileNotFoundError: If CSV file doesn't exist
+            ValueError: If CSV is invalid or columns don't match
+        """
+        if not csv_path.exists():
+            raise FileNotFoundError(f"CSV file not found: {csv_path}")
+
+        summary = DryRunSummary()
+        summary.table_name = job.target_table
+
+        with open(csv_path, encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+
+            if not reader.fieldnames:
+                raise ValueError("CSV file has no columns")
+
+            csv_columns = set(reader.fieldnames)
+
+            # Validate and determine columns to sync
+            id_csv_columns = self._validate_id_columns(job, csv_columns)
+            sync_columns = self._determine_sync_columns(job, csv_columns, id_csv_columns)
+
+            # Build schema definitions
+            columns_def = self._build_column_definitions(sync_columns, job)
+            primary_keys = [id_col.db_column for id_col in job.id_mapping]
+
+            # Check what schema changes would be made
+            summary.table_exists = self.table_exists(job.target_table)
+            
+            if summary.table_exists:
+                # Check for new columns
+                existing_columns = self.get_existing_columns(job.target_table)
+                for col_name, col_type in columns_def.items():
+                    if col_name.lower() not in existing_columns:
+                        summary.new_columns.append((col_name, col_type))
+                
+                # Check for new indexes
+                if job.indexes:
+                    existing_indexes = self.get_existing_indexes(job.target_table)
+                    for index in job.indexes:
+                        if index.name.lower() not in existing_indexes:
+                            summary.new_indexes.append(index.name)
+
+            # Count rows that would be synced
+            synced_ids = set()
+            for row in reader:
+                row_data = {}
+                for col_mapping in sync_columns:
+                    if col_mapping.csv_column in row:
+                        row_data[col_mapping.db_column] = row[col_mapping.csv_column]
+
+                # Add sync date if configured
+                if job.date_mapping and sync_date:
+                    row_data[job.date_mapping.db_column] = sync_date
+
+                # Track synced IDs
+                first_id_column = job.id_mapping[0].db_column
+                synced_ids.add(row_data[first_id_column])
+                summary.rows_to_sync += 1
+
+        # Count stale records that would be deleted
+        if job.date_mapping and sync_date and summary.table_exists:
+            first_id_column = job.id_mapping[0].db_column
+            summary.rows_to_delete = self.count_stale_records(
+                job.target_table,
+                first_id_column,
+                job.date_mapping.db_column,
+                sync_date,
+                synced_ids,
+            )
+
+        return summary
+
     def sync_csv_file(self, csv_path: Path, job: SyncJob, sync_date: str | None = None) -> int:
         """Sync a CSV file to the database using job configuration.
 
@@ -742,3 +941,21 @@ def sync_csv_to_postgres(
     """
     with DatabaseConnection(db_connection_string) as db:
         return db.sync_csv_file(csv_path, job, sync_date)
+
+
+def sync_csv_to_postgres_dry_run(
+    csv_path: Path, job: SyncJob, db_connection_string: str, sync_date: str | None = None
+) -> DryRunSummary:
+    """Simulate syncing a CSV file without making database changes.
+
+    Args:
+        csv_path: Path to the CSV file
+        job: SyncJob configuration
+        db_connection_string: Database connection string
+        sync_date: Optional date value to store in date column for all rows
+
+    Returns:
+        DryRunSummary with details of what would be changed
+    """
+    with DatabaseConnection(db_connection_string) as db:
+        return db.sync_csv_file_dry_run(csv_path, job, sync_date)
