@@ -96,6 +96,39 @@ class DatabaseBackend(Protocol):
         """
         ...
 
+    def table_exists(self, table_name: str) -> bool:
+        """Check if a table exists in the database.
+        
+        Args:
+            table_name: Name of the table to check
+            
+        Returns:
+            True if table exists, False otherwise
+        """
+        ...
+
+    def count_stale_records(
+        self,
+        table_name: str,
+        id_column: str,
+        date_column: str,
+        sync_date: str,
+        current_ids: set[str],
+    ) -> int:
+        """Count records that would be deleted without actually deleting them.
+        
+        Args:
+            table_name: Name of the table
+            id_column: Name of the ID column
+            date_column: Name of the date column
+            sync_date: Date value to filter by
+            current_ids: Set of IDs from the current CSV
+            
+        Returns:
+            Count of records that would be deleted
+        """
+        ...
+
 
 class PostgreSQLBackend:
     """PostgreSQL database backend."""
@@ -284,6 +317,60 @@ class PostgreSQLBackend:
         self.execute(query.as_string(self.conn))
         self.commit()
 
+    def table_exists(self, table_name: str) -> bool:
+        """Check if a table exists in the database.
+        
+        Args:
+            table_name: Name of the table to check
+            
+        Returns:
+            True if table exists, False otherwise
+        """
+        query = """
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_name = %s
+            )
+        """
+        result = self.fetchall(query, (table_name,))
+        return result[0][0] if result else False
+
+    def count_stale_records(
+        self,
+        table_name: str,
+        id_column: str,
+        date_column: str,
+        sync_date: str,
+        current_ids: set[str],
+    ) -> int:
+        """Count records that would be deleted without actually deleting them.
+        
+        Args:
+            table_name: Name of the table
+            id_column: Name of the ID column
+            date_column: Name of the date column
+            sync_date: Date value to filter by
+            current_ids: Set of IDs from the current CSV
+            
+        Returns:
+            Count of records that would be deleted
+        """
+        if not current_ids:
+            return 0
+
+        current_ids_list = list(current_ids)
+
+        # Count records to delete
+        count_query = sql.SQL("SELECT COUNT(*) FROM {} WHERE {} = %s AND {} NOT IN ({})").format(
+            sql.Identifier(table_name),
+            sql.Identifier(date_column),
+            sql.Identifier(id_column),
+            sql.SQL(", ").join(sql.Placeholder() * len(current_ids)),
+        )
+        params = tuple([sync_date] + current_ids_list)
+        count_result = self.fetchall(count_query.as_string(self.conn), params)
+        return count_result[0][0] if count_result else 0
+
 
 class SQLiteBackend:
     """SQLite database backend."""
@@ -453,6 +540,51 @@ class SQLiteBackend:
         self.execute(query)
         self.commit()
 
+    def table_exists(self, table_name: str) -> bool:
+        """Check if a table exists in the database.
+        
+        Args:
+            table_name: Name of the table to check
+            
+        Returns:
+            True if table exists, False otherwise
+        """
+        query = "SELECT name FROM sqlite_master WHERE type='table' AND name=?"
+        result = self.fetchall(query, (table_name,))
+        return len(result) > 0
+
+    def count_stale_records(
+        self,
+        table_name: str,
+        id_column: str,
+        date_column: str,
+        sync_date: str,
+        current_ids: set[str],
+    ) -> int:
+        """Count records that would be deleted without actually deleting them.
+        
+        Args:
+            table_name: Name of the table
+            id_column: Name of the ID column
+            date_column: Name of the date column
+            sync_date: Date value to filter by
+            current_ids: Set of IDs from the current CSV
+            
+        Returns:
+            Count of records that would be deleted
+        """
+        if not current_ids:
+            return 0
+
+        current_ids_list = list(current_ids)
+        placeholders = ", ".join("?" * len(current_ids))
+
+        # Count records to delete
+        count_query = f'SELECT COUNT(*) FROM "{table_name}" WHERE "{date_column}" = ? AND "{id_column}" NOT IN ({placeholders})'
+        params = tuple([sync_date] + current_ids_list)
+        count_result = self.fetchall(count_query, params)
+        return count_result[0][0] if count_result else 0
+
 
 class DatabaseConnection:
     """Database connection handler supporting PostgreSQL and SQLite."""
@@ -553,47 +685,7 @@ class DatabaseConnection:
         """
         if not self.backend:
             raise RuntimeError("Database connection not established")
-        
-        # Try to get existing columns - if it returns empty set, table doesn't exist
-        try:
-            existing_columns = self.backend.get_existing_columns(table_name)
-            # For PostgreSQL, get_existing_columns returns empty set for non-existent tables
-            # For SQLite, we need to catch the exception
-            return len(existing_columns) > 0 or self._check_table_exists_direct(table_name)
-        except Exception:
-            return False
-
-    def _check_table_exists_direct(self, table_name: str) -> bool:
-        """Direct check if table exists (fallback method).
-        
-        Args:
-            table_name: Name of the table to check
-            
-        Returns:
-            True if table exists, False otherwise
-        """
-        if not self.backend:
-            return False
-            
-        try:
-            # Try a simple query to check table existence
-            if isinstance(self.backend, PostgreSQLBackend):
-                query = """
-                    SELECT EXISTS (
-                        SELECT FROM information_schema.tables 
-                        WHERE table_name = %s
-                    )
-                """
-                result = self.backend.fetchall(query, (table_name,))
-                return result[0][0] if result else False
-            elif isinstance(self.backend, SQLiteBackend):
-                query = "SELECT name FROM sqlite_master WHERE type='table' AND name=?"
-                result = self.backend.fetchall(query, (table_name,))
-                return len(result) > 0
-        except Exception:
-            return False
-        
-        return False
+        return self.backend.table_exists(table_name)
 
     def count_stale_records(
         self,
@@ -617,30 +709,9 @@ class DatabaseConnection:
         """
         if not self.backend:
             raise RuntimeError("Database connection not established")
-            
-        if not current_ids:
-            return 0
-
-        current_ids_list = list(current_ids)
-
-        # Count records to delete
-        if isinstance(self.backend, PostgreSQLBackend):
-            count_query = sql.SQL("SELECT COUNT(*) FROM {} WHERE {} = %s AND {} NOT IN ({})").format(
-                sql.Identifier(table_name),
-                sql.Identifier(date_column),
-                sql.Identifier(id_column),
-                sql.SQL(", ").join(sql.Placeholder() * len(current_ids)),
-            )
-            params = tuple([sync_date] + current_ids_list)
-            count_result = self.backend.fetchall(count_query.as_string(self.backend.conn), params)
-        else:
-            # SQLite
-            placeholders = ", ".join("?" * len(current_ids))
-            count_query = f'SELECT COUNT(*) FROM "{table_name}" WHERE "{date_column}" = ? AND "{id_column}" NOT IN ({placeholders})'
-            params = tuple([sync_date] + current_ids_list)
-            count_result = self.backend.fetchall(count_query, params)
-        
-        return count_result[0][0] if count_result else 0
+        return self.backend.count_stale_records(
+            table_name, id_column, date_column, sync_date, current_ids
+        )
 
     def _validate_id_columns(self, job: SyncJob, csv_columns: set[str]) -> set[str]:
         """Validate that required ID columns exist in CSV.
