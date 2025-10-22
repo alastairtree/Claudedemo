@@ -61,6 +61,44 @@ class DateMapping:
         return None
 
 
+class IndexColumn:
+    """Column definition for a database index."""
+
+    def __init__(self, column: str, order: str = "ASC") -> None:
+        """Initialize index column.
+
+        Args:
+            column: Column name
+            order: Sort order - 'ASC' or 'DESC' (default: 'ASC')
+
+        Raises:
+            ValueError: If order is not 'ASC' or 'DESC'
+        """
+        if order.upper() not in ("ASC", "DESC"):
+            raise ValueError(f"Index order must be 'ASC' or 'DESC', got '{order}'")
+        self.column = column
+        self.order = order.upper()
+
+
+class Index:
+    """Database index configuration."""
+
+    def __init__(self, name: str, columns: list[IndexColumn]) -> None:
+        """Initialize index.
+
+        Args:
+            name: Index name
+            columns: List of columns with sort order
+
+        Raises:
+            ValueError: If columns list is empty
+        """
+        if not columns:
+            raise ValueError("Index must have at least one column")
+        self.name = name
+        self.columns = columns
+
+
 class SyncJob:
     """Configuration for a single sync job."""
 
@@ -68,24 +106,27 @@ class SyncJob:
         self,
         name: str,
         target_table: str,
-        id_mapping: ColumnMapping,
+        id_mapping: list[ColumnMapping],
         columns: list[ColumnMapping] | None = None,
         date_mapping: DateMapping | None = None,
+        indexes: list[Index] | None = None,
     ) -> None:
         """Initialize a sync job.
 
         Args:
             name: Name of the job
             target_table: Target database table name
-            id_mapping: Mapping for the ID column
+            id_mapping: List of mappings for ID columns (supports compound primary keys)
             columns: List of column mappings to sync (all columns if None)
             date_mapping: Optional date extraction and storage configuration
+            indexes: Optional list of database indexes to create
         """
         self.name = name
         self.target_table = target_table
         self.id_mapping = id_mapping
         self.columns = columns or []
         self.date_mapping = date_mapping
+        self.indexes = indexes or []
 
 
 class SyncConfig:
@@ -138,7 +179,10 @@ class SyncConfig:
               my_job:
                 target_table: users
                 id_mapping:
-                  user_id: id
+                  user_id: id  # Single column primary key
+                  # Or for compound primary key:
+                  # user_id: id
+                  # tenant_id: tenant
                 columns:
                   name: full_name  # Simple format
                   email: email_address
@@ -151,6 +195,17 @@ class SyncConfig:
                 date_mapping:
                   filename_regex: '(\d{4}-\d{2}-\d{2})'
                   db_column: sync_date
+                indexes:  # Optional
+                  - name: idx_email
+                    columns:
+                      - column: email
+                        order: ASC
+                  - name: idx_name_date
+                    columns:
+                      - column: name
+                        order: ASC
+                      - column: sync_date
+                        order: DESC
         """
         if not config_path.exists():
             raise FileNotFoundError(f"Config file not found: {config_path}")
@@ -229,17 +284,17 @@ class SyncConfig:
             raise ValueError(f"Job '{name}' missing 'id_mapping'")
 
         # Parse id_mapping as a dict: {csv_column: db_column} or {csv_column: {db_column: x, type: y}}
+        # Supports multiple columns for compound primary keys
         id_data = job_data["id_mapping"]
         if not isinstance(id_data, dict):
             raise ValueError(f"Job '{name}' id_mapping must be a dictionary")
 
-        if len(id_data) != 1:
-            raise ValueError(
-                f"Job '{name}' id_mapping must have exactly one mapping (source: destination)"
-            )
+        if len(id_data) < 1:
+            raise ValueError(f"Job '{name}' id_mapping must have at least one mapping")
 
-        csv_col, value = next(iter(id_data.items()))
-        id_mapping = SyncConfig._parse_column_mapping(csv_col, value, name)
+        id_mapping = []
+        for csv_col, value in id_data.items():
+            id_mapping.append(SyncConfig._parse_column_mapping(csv_col, value, name))
 
         # Parse columns as a dict: {csv_column: db_column} or {csv_column: {db_column: x, type: y}}
         columns = []
@@ -269,12 +324,43 @@ class SyncConfig:
                 db_column=date_data["db_column"],
             )
 
+        # Parse optional indexes
+        indexes = []
+        if "indexes" in job_data and job_data["indexes"]:
+            indexes_data = job_data["indexes"]
+            if not isinstance(indexes_data, list):
+                raise ValueError(f"Job '{name}' indexes must be a list")
+
+            for idx_data in indexes_data:
+                if not isinstance(idx_data, dict):
+                    raise ValueError(f"Job '{name}' index entry must be a dictionary")
+
+                if "name" not in idx_data:
+                    raise ValueError(f"Job '{name}' index missing 'name'")
+
+                if "columns" not in idx_data:
+                    raise ValueError(f"Job '{name}' index missing 'columns'")
+
+                idx_columns = []
+                for col_data in idx_data["columns"]:
+                    if not isinstance(col_data, dict):
+                        raise ValueError(f"Job '{name}' index column must be a dictionary")
+
+                    if "column" not in col_data:
+                        raise ValueError(f"Job '{name}' index column missing 'column' field")
+
+                    order = col_data.get("order", "ASC")
+                    idx_columns.append(IndexColumn(column=col_data["column"], order=order))
+
+                indexes.append(Index(name=idx_data["name"], columns=idx_columns))
+
         return SyncJob(
             name=name,
             target_table=job_data["target_table"],
             id_mapping=id_mapping,
             columns=columns if columns else None,
             date_mapping=date_mapping,
+            indexes=indexes if indexes else None,
         )
 
     def add_or_update_job(self, job: SyncJob, force: bool = False) -> bool:
@@ -305,9 +391,20 @@ class SyncConfig:
         jobs_dict = {}
 
         for job_name, job in self.jobs.items():
+            # Build id_mapping dict (supports compound primary keys)
+            id_mapping_dict = {}
+            for id_col in job.id_mapping:
+                if id_col.data_type:
+                    id_mapping_dict[id_col.csv_column] = {
+                        "db_column": id_col.db_column,
+                        "type": id_col.data_type,
+                    }
+                else:
+                    id_mapping_dict[id_col.csv_column] = id_col.db_column
+
             job_dict: dict[str, Any] = {
                 "target_table": job.target_table,
-                "id_mapping": {job.id_mapping.csv_column: job.id_mapping.db_column},
+                "id_mapping": id_mapping_dict,
             }
 
             # Add columns if present
@@ -329,6 +426,19 @@ class SyncConfig:
                     "filename_regex": job.date_mapping.filename_regex,
                     "db_column": job.date_mapping.db_column,
                 }
+
+            # Add indexes if present
+            if job.indexes:
+                indexes_list = []
+                for index in job.indexes:
+                    index_dict = {
+                        "name": index.name,
+                        "columns": [
+                            {"column": col.column, "order": col.order} for col in index.columns
+                        ],
+                    }
+                    indexes_list.append(index_dict)
+                job_dict["indexes"] = indexes_list
 
             jobs_dict[job_name] = job_dict
 

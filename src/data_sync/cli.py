@@ -159,7 +159,7 @@ def prepare(file_path: Path, config: Path, job: str, force: bool) -> None:
         new_job = SyncJob(
             name=job,
             target_table=job,  # Use job name as table name
-            id_mapping=ColumnMapping(csv_column=id_column, db_column="id"),
+            id_mapping=[ColumnMapping(csv_column=id_column, db_column="id")],
             columns=column_mappings if column_mappings else None,
         )
 
