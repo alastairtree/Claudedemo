@@ -15,8 +15,6 @@ Sync CSV and CDF science files into PostgreSQL database using configuration-base
 - **Automatic Cleanup**: Delete stale records for specific dates after sync
 - **Idempotent Operations**: Safe to run multiple times, uses upsert
 - **Modern Python**: Built for Python 3.11+ with full type hints
-- **Robust Testing**: Comprehensive test suite with pytest (23 unit tests + 7 integration tests)
-- **Real Database Testing**: Integration tests with PostgreSQL via testcontainers
 - **CLI Interface**: User-friendly command-line interface using Click
 - **Rich Output**: Beautiful terminal output with Rich library
 - **Code Quality**: Automated linting with Ruff and type checking with MyPy
@@ -78,12 +76,18 @@ jobs:
       email: email_address
 ```
 
-2. **Prepare your CSV file** (`users.csv`):
+OR use the tool to examine your csv file and suggest a config file job entry:
+
+```
+data-sync prepare test.csv config.yaml new_import_job
+```
+
+2. **Have a CSV file you want to sync to the database** (`users.csv`):
 
 ```csv
-user_id,name,email,notes
-1,Alice,alice@example.com,Admin user
-2,Bob,bob@example.com,Regular user
+user_id,name,email,notes,thing
+1,Alice,alice@example.com,Admin user,123
+2,Bob,bob@example.com,Regular user,5.88
 ```
 
 3. **Run the sync**:
@@ -129,7 +133,7 @@ jobs:
       # Note: other CSV columns like 'internal_notes' won't be synced
 ```
 
-#### Example: Date-Based Sync with Automatic Cleanup
+#### Example: Date-Based Sync from a Daily File with Automatic Cleanup
 
 ```yaml
 jobs:
