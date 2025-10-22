@@ -388,7 +388,7 @@ class DatabaseConnection:
         self.connection_string = connection_string
         self.backend: DatabaseBackend | None = None
 
-    def __enter__(self) -> "DatabaseConnection":
+    def __enter__(self) -> DatabaseConnection:
         """Enter context manager."""
         if self.connection_string.startswith("sqlite"):
             self.backend = SQLiteBackend(self.connection_string)

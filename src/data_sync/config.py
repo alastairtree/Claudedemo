@@ -109,7 +109,7 @@ class SyncConfig:
         return self.jobs.get(name)
 
     @classmethod
-    def from_yaml(cls, config_path: Path) -> "SyncConfig":
+    def from_yaml(cls, config_path: Path) -> SyncConfig:
         r"""Load configuration from a YAML file.
 
         Args:
