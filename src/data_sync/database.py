@@ -856,6 +856,40 @@ class DatabaseConnection:
 
         return rows_synced, synced_ids
 
+    def _prepare_sync(
+        self, csv_path: Path, job: SyncJob
+    ) -> tuple[set[str], list[Any], dict[str, str]]:
+        """Prepare for sync by validating CSV and building schema definitions.
+
+        Args:
+            csv_path: Path to CSV file
+            job: SyncJob configuration
+
+        Returns:
+            Tuple of (csv_columns, sync_columns, columns_def)
+
+        Raises:
+            FileNotFoundError: If CSV file doesn't exist
+            ValueError: If CSV is invalid or columns don't match
+        """
+        if not csv_path.exists():
+            raise FileNotFoundError(f"CSV file not found: {csv_path}")
+
+        with open(csv_path, encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            if not reader.fieldnames:
+                raise ValueError("CSV file has no columns")
+            csv_columns = set(reader.fieldnames)
+
+        # Validate and determine columns to sync
+        id_csv_columns = self._validate_id_columns(job, csv_columns)
+        sync_columns = self._determine_sync_columns(job, csv_columns, id_csv_columns)
+
+        # Build schema definitions
+        columns_def = self._build_column_definitions(sync_columns, job)
+
+        return csv_columns, sync_columns, columns_def
+
     def sync_csv_file_dry_run(
         self, csv_path: Path, job: SyncJob, sync_date: str | None = None
     ) -> DryRunSummary:
@@ -873,46 +907,33 @@ class DatabaseConnection:
             FileNotFoundError: If CSV file doesn't exist
             ValueError: If CSV is invalid or columns don't match
         """
-        if not csv_path.exists():
-            raise FileNotFoundError(f"CSV file not found: {csv_path}")
-
         summary = DryRunSummary()
         summary.table_name = job.target_table
 
+        # Prepare sync (validates CSV and builds schema)
+        csv_columns, sync_columns, columns_def = self._prepare_sync(csv_path, job)
+
+        # Check what schema changes would be made
+        summary.table_exists = self.table_exists(job.target_table)
+
+        if summary.table_exists:
+            # Check for new columns
+            existing_columns = self.get_existing_columns(job.target_table)
+            for col_name, col_type in columns_def.items():
+                if col_name.lower() not in existing_columns:
+                    summary.new_columns.append((col_name, col_type))
+
+            # Check for new indexes
+            if job.indexes:
+                existing_indexes = self.get_existing_indexes(job.target_table)
+                for index in job.indexes:
+                    if index.name.lower() not in existing_indexes:
+                        summary.new_indexes.append(index.name)
+
+        # Count rows that would be synced
+        synced_ids = set()
         with open(csv_path, encoding="utf-8") as f:
             reader = csv.DictReader(f)
-
-            if not reader.fieldnames:
-                raise ValueError("CSV file has no columns")
-
-            csv_columns = set(reader.fieldnames)
-
-            # Validate and determine columns to sync
-            id_csv_columns = self._validate_id_columns(job, csv_columns)
-            sync_columns = self._determine_sync_columns(job, csv_columns, id_csv_columns)
-
-            # Build schema definitions
-            columns_def = self._build_column_definitions(sync_columns, job)
-
-            # Check what schema changes would be made
-            summary.table_exists = self.table_exists(job.target_table)
-
-            if summary.table_exists:
-                # Check for new columns
-                existing_columns = self.get_existing_columns(job.target_table)
-                for col_name, col_type in columns_def.items():
-                    if col_name.lower() not in existing_columns:
-                        summary.new_columns.append((col_name, col_type))
-
-                # Check for new indexes
-                if job.indexes:
-                    existing_indexes = self.get_existing_indexes(job.target_table)
-                    for index in job.indexes:
-                        if index.name.lower() not in existing_indexes:
-                            summary.new_indexes.append(index.name)
-
-            # Count rows that would be synced
-            synced_ids = set()
             for row in reader:
                 row_data = {}
                 for col_mapping in sync_columns:
@@ -956,27 +977,16 @@ class DatabaseConnection:
             FileNotFoundError: If CSV file doesn't exist
             ValueError: If CSV is invalid or columns don't match
         """
-        if not csv_path.exists():
-            raise FileNotFoundError(f"CSV file not found: {csv_path}")
+        # Prepare sync (validates CSV and builds schema)
+        csv_columns, sync_columns, columns_def = self._prepare_sync(csv_path, job)
 
+        # Build schema and setup table
+        primary_keys = [id_col.db_column for id_col in job.id_mapping]
+        self._setup_table_schema(job, columns_def, primary_keys)
+
+        # Process CSV rows
         with open(csv_path, encoding="utf-8") as f:
             reader = csv.DictReader(f)
-
-            if not reader.fieldnames:
-                raise ValueError("CSV file has no columns")
-
-            csv_columns = set(reader.fieldnames)
-
-            # Validate and determine columns to sync
-            id_csv_columns = self._validate_id_columns(job, csv_columns)
-            sync_columns = self._determine_sync_columns(job, csv_columns, id_csv_columns)
-
-            # Build schema and setup table
-            columns_def = self._build_column_definitions(sync_columns, job)
-            primary_keys = [id_col.db_column for id_col in job.id_mapping]
-            self._setup_table_schema(job, columns_def, primary_keys)
-
-            # Process CSV rows
             rows_synced, synced_ids = self._process_csv_rows(
                 reader, job, sync_columns, primary_keys, sync_date
             )
