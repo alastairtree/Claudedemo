@@ -1103,6 +1103,11 @@ class DatabaseConnection:
                         summary.new_indexes.append(index.name)
 
         # Count rows and track IDs that would be synced
+        # NOTE: This counts all CSV rows, even if they match existing data.
+        # A more accurate implementation would query existing data and compare,
+        # but that would be expensive for large datasets. For now, we report
+        # the upper bound of rows that could be updated.
+        # If there are new columns, all rows will need updating regardless.
         summary.rows_to_sync, synced_ids = self._count_and_track_csv_rows(
             csv_path, job, sync_columns, sync_date
         )

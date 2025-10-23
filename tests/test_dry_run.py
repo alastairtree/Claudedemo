@@ -76,6 +76,10 @@ def test_dry_run_summary_existing_table_no_changes(db_url: str, tmp_path: Path) 
     # Verify summary
     assert summary.table_name == "products"
     assert summary.table_exists
+    # NOTE: Current implementation reports all rows as "to sync" since it doesn't
+    # compare CSV data with existing database data. This is the upper bound -
+    # actual upserts may not change data if values match.
+    # A more sophisticated implementation would query and compare data.
     assert summary.rows_to_sync == 2
     assert summary.rows_to_delete == 0
     assert len(summary.new_columns) == 0
@@ -135,6 +139,83 @@ def test_dry_run_summary_new_columns(db_url: str, tmp_path: Path) -> None:
     new_column_names = [col[0] for col in summary.new_columns]
     assert "total_amount" in new_column_names
     assert "order_status" in new_column_names
+
+
+def test_new_column_updates_all_rows(db_url: str, tmp_path: Path) -> None:
+    """Test that when new columns are added, all existing rows are updated.
+
+    This test verifies that schema evolution (adding new columns) causes
+    all existing rows to be re-synced, not just new rows.
+    """
+    # Create initial CSV and sync it
+    csv_file1 = tmp_path / "data_v1.csv"
+    with open(csv_file1, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["user_id", "name"])
+        writer.writeheader()
+        writer.writerow({"user_id": "1", "name": "Alice"})
+        writer.writerow({"user_id": "2", "name": "Bob"})
+        writer.writerow({"user_id": "3", "name": "Charlie"})
+
+    job_v1 = SyncJob(
+        name="test_job",
+        target_table="users",
+        id_mapping=[ColumnMapping("user_id", "id")],
+        columns=[ColumnMapping("name", "name")],
+    )
+
+    with DatabaseConnection(db_url) as db:
+        rows_v1 = db.sync_csv_file(csv_file1, job_v1)
+    assert rows_v1 == 3
+
+    # Create new CSV with additional column and same data plus one new row
+    csv_file2 = tmp_path / "data_v2.csv"
+    with open(csv_file2, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["user_id", "name", "email"])
+        writer.writeheader()
+        writer.writerow({"user_id": "1", "name": "Alice", "email": "alice@example.com"})
+        writer.writerow({"user_id": "2", "name": "Bob", "email": "bob@example.com"})
+        writer.writerow({"user_id": "3", "name": "Charlie", "email": "charlie@example.com"})
+        writer.writerow({"user_id": "4", "name": "Diana", "email": "diana@example.com"})
+
+    job_v2 = SyncJob(
+        name="test_job",
+        target_table="users",
+        id_mapping=[ColumnMapping("user_id", "id")],
+        columns=[
+            ColumnMapping("name", "name"),
+            ColumnMapping("email", "email"),  # New column
+        ],
+    )
+
+    # Run dry-run first
+    summary = sync_csv_to_postgres_dry_run(csv_file2, job_v2, db_url)
+
+    # Verify dry-run detected the new column
+    assert summary.table_exists
+    assert len(summary.new_columns) == 1
+    assert summary.new_columns[0][0] == "email"
+    # All 4 rows will be synced (3 existing + 1 new)
+    assert summary.rows_to_sync == 4
+
+    # Now perform actual sync
+    with DatabaseConnection(db_url) as db:
+        rows_v2 = db.sync_csv_file(csv_file2, job_v2)
+
+    # All 4 rows are synced (UPSERT operates on all rows)
+    assert rows_v2 == 4
+
+    # Verify dry-run prediction matched actual sync
+    assert summary.rows_to_sync == rows_v2
+
+    # Verify the email column was added and all rows have email values
+    from .db_test_utils import execute_query
+
+    rows = execute_query(db_url, "SELECT id, name, email FROM users ORDER BY id")
+    assert len(rows) == 4
+    assert rows[0] == ("1", "Alice", "alice@example.com")
+    assert rows[1] == ("2", "Bob", "bob@example.com")
+    assert rows[2] == ("3", "Charlie", "charlie@example.com")
+    assert rows[3] == ("4", "Diana", "diana@example.com")
 
 
 def test_dry_run_summary_new_indexes(db_url: str, tmp_path: Path) -> None:
