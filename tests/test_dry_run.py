@@ -1,13 +1,95 @@
 """Tests for dry-run functionality."""
 
 import csv
+import platform
 from pathlib import Path
+
+import pytest
 
 from data_sync.config import ColumnMapping, DateMapping, Index, IndexColumn, SyncJob
 from data_sync.database import DatabaseConnection, sync_csv_to_postgres_dry_run
 
 
-def test_dry_run_summary_new_table(tmp_path: Path) -> None:
+def _should_skip_postgres_tests():
+    """Check if PostgreSQL tests should be skipped.
+
+    Testcontainers has issues on Windows/macOS with Docker socket mounting.
+    Only run PostgreSQL tests on Linux (locally or in CI).
+    """
+    system = platform.system()
+
+    # Skip on Windows and macOS - testcontainers doesn't work reliably
+    if system in ("Windows", "Darwin"):
+        return True, f"PostgreSQL tests not supported on {system} (testcontainers limitation)"
+
+    # On Linux, check if Docker is available
+    try:
+        import docker
+
+        client = docker.from_env()
+        client.ping()
+        return False, None
+    except Exception as e:
+        return True, f"Docker is not available: {e}"
+
+
+@pytest.fixture(params=["sqlite", "postgres"])
+def db_url(request, tmp_path):
+    """Provide database connection URL for both SQLite and PostgreSQL."""
+    if request.param == "sqlite":
+        # SQLite: use file-based database
+        db_file = tmp_path / "test.db"
+        return f"sqlite:///{db_file}"
+    else:
+        # PostgreSQL: use testcontainers
+        should_skip, reason = _should_skip_postgres_tests()
+        if should_skip:
+            pytest.skip(reason)
+
+        from testcontainers.postgres import PostgresContainer
+
+        # Create container for this test
+        container = PostgresContainer("postgres:16-alpine")
+        container.start()
+
+        # Store container in request so we can clean it up
+        request.addfinalizer(container.stop)
+
+        return container.get_connection_url(driver=None)
+
+
+def table_exists(db_url: str, table_name: str) -> bool:
+    """Check if a table exists in the database."""
+    if db_url.startswith("sqlite"):
+        import sqlite3
+
+        db_path = db_url.replace("sqlite:///", "")
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,)
+        )
+        result = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        return result is not None
+    else:
+        import psycopg
+
+        with psycopg.connect(db_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables
+                    WHERE table_name = %s
+                )
+                """,
+                (table_name,),
+            )
+            return cur.fetchone()[0]
+
+
+def test_dry_run_summary_new_table(db_url: str, tmp_path: Path) -> None:
     """Test dry-run summary when table doesn't exist."""
     # Create a CSV file
     csv_file = tmp_path / "test.csv"
@@ -29,10 +111,6 @@ def test_dry_run_summary_new_table(tmp_path: Path) -> None:
         ],
     )
 
-    # Create SQLite database URL
-    db_file = tmp_path / "test.db"
-    db_url = f"sqlite:///{db_file}"
-
     # Run dry-run
     summary = sync_csv_to_postgres_dry_run(csv_file, job, db_url)
 
@@ -44,20 +122,11 @@ def test_dry_run_summary_new_table(tmp_path: Path) -> None:
     assert len(summary.new_columns) == 0  # No columns to add since table doesn't exist
     assert len(summary.new_indexes) == 0
 
-    # Verify no tables were created in database (connection may exist for SQLite)
-    if db_file.exists():
-        import sqlite3
-
-        conn = sqlite3.connect(db_file)
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        tables = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        assert len(tables) == 0, "No tables should have been created during dry-run"
+    # Verify no tables were created during dry-run
+    assert not table_exists(db_url, "users"), "No tables should have been created during dry-run"
 
 
-def test_dry_run_summary_existing_table_no_changes(tmp_path: Path) -> None:
+def test_dry_run_summary_existing_table_no_changes(db_url: str, tmp_path: Path) -> None:
     """Test dry-run when table exists and no schema changes needed."""
     # Create a CSV file
     csv_file = tmp_path / "test.csv"
@@ -66,10 +135,6 @@ def test_dry_run_summary_existing_table_no_changes(tmp_path: Path) -> None:
         writer.writeheader()
         writer.writerow({"product_id": "1", "name": "Widget", "price": "19.99"})
         writer.writerow({"product_id": "2", "name": "Gadget", "price": "29.99"})
-
-    # Create SQLite database and table
-    db_file = tmp_path / "test.db"
-    db_url = f"sqlite:///{db_file}"
 
     # First, create the table with actual data
     job = SyncJob(
@@ -97,7 +162,7 @@ def test_dry_run_summary_existing_table_no_changes(tmp_path: Path) -> None:
     assert len(summary.new_indexes) == 0
 
 
-def test_dry_run_summary_new_columns(tmp_path: Path) -> None:
+def test_dry_run_summary_new_columns(db_url: str, tmp_path: Path) -> None:
     """Test dry-run when new columns need to be added."""
     # Create initial CSV file with fewer columns
     csv_file1 = tmp_path / "test1.csv"
@@ -105,10 +170,6 @@ def test_dry_run_summary_new_columns(tmp_path: Path) -> None:
         writer = csv.DictWriter(f, fieldnames=["order_id", "customer_name"])
         writer.writeheader()
         writer.writerow({"order_id": "1", "customer_name": "Alice"})
-
-    # Create database with initial schema
-    db_file = tmp_path / "test.db"
-    db_url = f"sqlite:///{db_file}"
 
     job1 = SyncJob(
         name="test_job",
@@ -156,7 +217,7 @@ def test_dry_run_summary_new_columns(tmp_path: Path) -> None:
     assert "order_status" in new_column_names
 
 
-def test_dry_run_summary_new_indexes(tmp_path: Path) -> None:
+def test_dry_run_summary_new_indexes(db_url: str, tmp_path: Path) -> None:
     """Test dry-run when new indexes need to be created."""
     # Create a CSV file
     csv_file = tmp_path / "test.csv"
@@ -164,10 +225,6 @@ def test_dry_run_summary_new_indexes(tmp_path: Path) -> None:
         writer = csv.DictWriter(f, fieldnames=["user_id", "email"])
         writer.writeheader()
         writer.writerow({"user_id": "1", "email": "alice@example.com"})
-
-    # Create database without indexes
-    db_file = tmp_path / "test.db"
-    db_url = f"sqlite:///{db_file}"
 
     job_no_indexes = SyncJob(
         name="test_job",
@@ -200,7 +257,7 @@ def test_dry_run_summary_new_indexes(tmp_path: Path) -> None:
     assert "idx_email" in summary.new_indexes
 
 
-def test_dry_run_with_date_mapping_and_stale_records(tmp_path: Path) -> None:
+def test_dry_run_with_date_mapping_and_stale_records(db_url: str, tmp_path: Path) -> None:
     """Test dry-run with date mapping and stale record detection."""
     # Create initial CSV with date in filename
     csv_file1 = tmp_path / "sales_2024-01-15.csv"
@@ -210,10 +267,6 @@ def test_dry_run_with_date_mapping_and_stale_records(tmp_path: Path) -> None:
         writer.writerow({"sale_id": "1", "amount": "100"})
         writer.writerow({"sale_id": "2", "amount": "200"})
         writer.writerow({"sale_id": "3", "amount": "300"})
-
-    # Create database with initial data
-    db_file = tmp_path / "test.db"
-    db_url = f"sqlite:///{db_file}"
 
     job = SyncJob(
         name="sales_job",
@@ -247,7 +300,7 @@ def test_dry_run_with_date_mapping_and_stale_records(tmp_path: Path) -> None:
     assert summary.rows_to_delete == 1  # sale_id 3 would be deleted
 
 
-def test_dry_run_with_compound_primary_key(tmp_path: Path) -> None:
+def test_dry_run_with_compound_primary_key(db_url: str, tmp_path: Path) -> None:
     """Test dry-run with compound primary key."""
     # Create a CSV file
     csv_file = tmp_path / "test.csv"
@@ -268,10 +321,6 @@ def test_dry_run_with_compound_primary_key(tmp_path: Path) -> None:
         ],
         columns=[ColumnMapping("quantity", "qty")],
     )
-
-    # Create SQLite database URL
-    db_file = tmp_path / "test.db"
-    db_url = f"sqlite:///{db_file}"
 
     # Run dry-run
     summary = sync_csv_to_postgres_dry_run(csv_file, job, db_url)
