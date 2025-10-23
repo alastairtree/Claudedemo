@@ -1,92 +1,12 @@
 """Tests for dry-run functionality."""
 
 import csv
-import platform
 from pathlib import Path
-
-import pytest
 
 from data_sync.config import ColumnMapping, DateMapping, Index, IndexColumn, SyncJob
 from data_sync.database import DatabaseConnection, sync_csv_to_postgres_dry_run
 
-
-def _should_skip_postgres_tests():
-    """Check if PostgreSQL tests should be skipped.
-
-    Testcontainers has issues on Windows/macOS with Docker socket mounting.
-    Only run PostgreSQL tests on Linux (locally or in CI).
-    """
-    system = platform.system()
-
-    # Skip on Windows and macOS - testcontainers doesn't work reliably
-    if system in ("Windows", "Darwin"):
-        return True, f"PostgreSQL tests not supported on {system} (testcontainers limitation)"
-
-    # On Linux, check if Docker is available
-    try:
-        import docker
-
-        client = docker.from_env()
-        client.ping()
-        return False, None
-    except Exception as e:
-        return True, f"Docker is not available: {e}"
-
-
-@pytest.fixture(params=["sqlite", "postgres"])
-def db_url(request, tmp_path):
-    """Provide database connection URL for both SQLite and PostgreSQL."""
-    if request.param == "sqlite":
-        # SQLite: use file-based database
-        db_file = tmp_path / "test.db"
-        return f"sqlite:///{db_file}"
-    else:
-        # PostgreSQL: use testcontainers
-        should_skip, reason = _should_skip_postgres_tests()
-        if should_skip:
-            pytest.skip(reason)
-
-        from testcontainers.postgres import PostgresContainer
-
-        # Create container for this test
-        container = PostgresContainer("postgres:16-alpine")
-        container.start()
-
-        # Store container in request so we can clean it up
-        request.addfinalizer(container.stop)
-
-        return container.get_connection_url(driver=None)
-
-
-def table_exists(db_url: str, table_name: str) -> bool:
-    """Check if a table exists in the database."""
-    if db_url.startswith("sqlite"):
-        import sqlite3
-
-        db_path = db_url.replace("sqlite:///", "")
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,)
-        )
-        result = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        return result is not None
-    else:
-        import psycopg
-
-        with psycopg.connect(db_url) as conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT EXISTS (
-                    SELECT FROM information_schema.tables
-                    WHERE table_name = %s
-                )
-                """,
-                (table_name,),
-            )
-            return cur.fetchone()[0]
+from .db_test_utils import table_exists
 
 
 def test_dry_run_summary_new_table(db_url: str, tmp_path: Path) -> None:
@@ -506,7 +426,7 @@ def test_dry_run_compound_key_with_date_mapping_matches_sync(db_url: str, tmp_pa
     # Verify dry-run predicted correct counts for update
     assert dry_run_summary_update.rows_to_sync == rows_synced_update
     assert dry_run_summary_update.rows_to_sync == 5  # 4 updates + 1 new
-    
+
     # NOTE: Current limitation with compound keys and date-based cleanup:
     # The stale record detection uses only the first ID column (store_id) to track
     # which records should be deleted. This means:
