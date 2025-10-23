@@ -1,7 +1,6 @@
 """Integration tests for database synchronization with SQLite and PostgreSQL."""
 
 import csv
-import platform
 import sqlite3
 from pathlib import Path
 
@@ -10,102 +9,7 @@ import pytest
 from data_sync.config import SyncConfig
 from data_sync.database import DatabaseConnection, sync_csv_to_postgres
 
-
-def _should_skip_postgres_tests():
-    """Check if PostgreSQL tests should be skipped.
-
-    Testcontainers has issues on Windows/macOS with Docker socket mounting.
-    Only run PostgreSQL tests on Linux (locally or in CI).
-    """
-    system = platform.system()
-
-    # Skip on Windows and macOS - testcontainers doesn't work reliably
-    if system in ("Windows", "Darwin"):
-        return True, f"PostgreSQL tests not supported on {system} (testcontainers limitation)"
-
-    # On Linux, check if Docker is available
-    try:
-        import docker
-
-        client = docker.from_env()
-        client.ping()
-        return False, None
-    except Exception as e:
-        return True, f"Docker is not available: {e}"
-
-
-@pytest.fixture(params=["sqlite", "postgres"])
-def db_url(request, tmp_path):
-    """Provide database connection URL for both SQLite and PostgreSQL."""
-    if request.param == "sqlite":
-        # SQLite: use file-based database
-        db_file = tmp_path / "test.db"
-        return f"sqlite:///{db_file}"
-    else:
-        # PostgreSQL: use testcontainers
-        should_skip, reason = _should_skip_postgres_tests()
-        if should_skip:
-            pytest.skip(reason)
-
-        from testcontainers.postgres import PostgresContainer
-
-        # Create container for this test
-        container = PostgresContainer("postgres:16-alpine")
-        container.start()
-
-        # Store container in request so we can clean it up
-        request.addfinalizer(container.stop)
-
-        return container.get_connection_url(driver=None)
-
-
-def execute_query(db_url: str, query: str, params: tuple = ()) -> list[tuple]:
-    """Execute a query and return results for any database type."""
-    if db_url.startswith("sqlite"):
-        # Extract path from sqlite:///path
-        db_path = db_url.replace("sqlite:///", "")
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        # Replace %s with ? for SQLite
-        sqlite_query = query.replace("%s", "?")
-        cursor.execute(sqlite_query, params)
-        results = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return results
-    else:
-        import psycopg
-
-        with psycopg.connect(db_url) as conn, conn.cursor() as cur:
-            cur.execute(query, params)
-            return cur.fetchall()
-
-
-def get_table_columns(db_url: str, table_name: str) -> list[str]:
-    """Get column names from a table for any database type."""
-    if db_url.startswith("sqlite"):
-        db_path = db_url.replace("sqlite:///", "")
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute(f'PRAGMA table_info("{table_name}")')
-        columns = [row[1] for row in cursor.fetchall()]  # Column name is at index 1
-        cursor.close()
-        conn.close()
-        return sorted(columns)
-    else:
-        import psycopg
-
-        with psycopg.connect(db_url) as conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_name = %s
-                ORDER BY column_name
-            """,
-                (table_name,),
-            )
-            return [row[0] for row in cur.fetchall()]
+from .db_test_utils import execute_query, get_table_columns
 
 
 def get_table_indexes(db_url: str, table_name: str) -> set[str]:
