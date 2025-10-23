@@ -72,10 +72,10 @@ class DatabaseBackend(Protocol):
     def delete_stale_records(
         self,
         table_name: str,
-        id_column: str,
+        id_columns: list[str],
         date_column: str,
         sync_date: str,
-        current_ids: set[str],
+        current_ids: set[tuple],
     ) -> int:
         """Delete records from database that aren't in current CSV."""
         ...
@@ -110,10 +110,10 @@ class DatabaseBackend(Protocol):
     def count_stale_records(
         self,
         table_name: str,
-        id_column: str,
+        id_columns: list[str],
         date_column: str,
         sync_date: str,
-        current_ids: set[str],
+        current_ids: set[tuple],
     ) -> int:
         """Count records that would be deleted without actually deleting them.
 
@@ -255,35 +255,83 @@ class PostgreSQLBackend:
     def delete_stale_records(
         self,
         table_name: str,
-        id_column: str,
+        id_columns: list[str],
         date_column: str,
         sync_date: str,
-        current_ids: set[str],
+        current_ids: set[tuple],
     ) -> int:
-        """Delete records from database that aren't in current CSV."""
+        """Delete records from database that aren't in current CSV.
+
+        Args:
+            table_name: Name of the table
+            id_columns: List of ID column names (for compound keys)
+            date_column: Name of the date column
+            sync_date: Date value to filter by
+            current_ids: Set of ID tuples from the current CSV
+
+        Returns:
+            Count of records deleted
+        """
         if not current_ids:
             return 0
 
-        current_ids_list = list(current_ids)
+        # Build WHERE clause for compound keys
+        # For single key: WHERE date = ? AND id NOT IN (...)
+        # For compound: WHERE date = ? AND (id1, id2) NOT IN ((?, ?), (?, ?), ...)
+        if len(id_columns) == 1:
+            # Single key - simpler query
+            current_ids_list = [
+                id_val[0] if isinstance(id_val, tuple) else id_val for id_val in current_ids
+            ]
+            count_query = sql.SQL(
+                "SELECT COUNT(*) FROM {} WHERE {} = %s AND {} NOT IN ({})"
+            ).format(
+                sql.Identifier(table_name),
+                sql.Identifier(date_column),
+                sql.Identifier(id_columns[0]),
+                sql.SQL(", ").join(sql.Placeholder() * len(current_ids_list)),
+            )
+            params = tuple([sync_date] + current_ids_list)
+        else:
+            # Compound key - use row value constructor
+            id_cols_sql = sql.SQL("({})").format(
+                sql.SQL(", ").join(sql.Identifier(col) for col in id_columns)
+            )
+            placeholders = sql.SQL(", ").join(
+                sql.SQL("({})").format(sql.SQL(", ").join(sql.Placeholder() * len(id_columns)))
+                for _ in current_ids
+            )
+            count_query = sql.SQL(
+                "SELECT COUNT(*) FROM {} WHERE {} = %s AND {} NOT IN ({})"
+            ).format(
+                sql.Identifier(table_name),
+                sql.Identifier(date_column),
+                id_cols_sql,
+                placeholders,
+            )
+            # Flatten the list of tuples for params
+            id_params = [val for id_tuple in current_ids for val in id_tuple]
+            params = tuple([sync_date] + id_params)
 
-        # Count records to delete
-        count_query = sql.SQL("SELECT COUNT(*) FROM {} WHERE {} = %s AND {} NOT IN ({})").format(
-            sql.Identifier(table_name),
-            sql.Identifier(date_column),
-            sql.Identifier(id_column),
-            sql.SQL(", ").join(sql.Placeholder() * len(current_ids)),
-        )
-        params = tuple([sync_date] + current_ids_list)
         count_result = self.fetchall(count_query.as_string(self.conn), params)
         deleted_count = count_result[0][0] if count_result else 0
 
-        # Delete stale records
-        delete_query = sql.SQL("DELETE FROM {} WHERE {} = %s AND {} NOT IN ({})").format(
-            sql.Identifier(table_name),
-            sql.Identifier(date_column),
-            sql.Identifier(id_column),
-            sql.SQL(", ").join(sql.Placeholder() * len(current_ids)),
-        )
+        # Delete stale records using same logic
+        if len(id_columns) == 1:
+            delete_query = sql.SQL("DELETE FROM {} WHERE {} = %s AND {} NOT IN ({})").format(
+                sql.Identifier(table_name),
+                sql.Identifier(date_column),
+                sql.Identifier(id_columns[0]),
+                sql.SQL(", ").join(sql.Placeholder() * len(current_ids_list)),
+            )
+        else:
+            delete_query = sql.SQL("DELETE FROM {} WHERE {} = %s AND {} NOT IN ({})").format(
+                sql.Identifier(table_name),
+                sql.Identifier(date_column),
+                id_cols_sql,
+                placeholders,
+            )
+
         self.execute(delete_query.as_string(self.conn), params)
         self.commit()
 
@@ -338,19 +386,19 @@ class PostgreSQLBackend:
     def count_stale_records(
         self,
         table_name: str,
-        id_column: str,
+        id_columns: list[str],
         date_column: str,
         sync_date: str,
-        current_ids: set[str],
+        current_ids: set[tuple],
     ) -> int:
         """Count records that would be deleted without actually deleting them.
 
         Args:
             table_name: Name of the table
-            id_column: Name of the ID column
+            id_columns: List of ID column names (for compound keys)
             date_column: Name of the date column
             sync_date: Date value to filter by
-            current_ids: Set of IDs from the current CSV
+            current_ids: Set of ID tuples from the current CSV
 
         Returns:
             Count of records that would be deleted
@@ -358,16 +406,42 @@ class PostgreSQLBackend:
         if not current_ids:
             return 0
 
-        current_ids_list = list(current_ids)
+        # Build WHERE clause for compound keys
+        if len(id_columns) == 1:
+            # Single key - simpler query
+            current_ids_list = [
+                id_val[0] if isinstance(id_val, tuple) else id_val for id_val in current_ids
+            ]
+            count_query = sql.SQL(
+                "SELECT COUNT(*) FROM {} WHERE {} = %s AND {} NOT IN ({})"
+            ).format(
+                sql.Identifier(table_name),
+                sql.Identifier(date_column),
+                sql.Identifier(id_columns[0]),
+                sql.SQL(", ").join(sql.Placeholder() * len(current_ids_list)),
+            )
+            params = tuple([sync_date] + current_ids_list)
+        else:
+            # Compound key - use row value constructor
+            id_cols_sql = sql.SQL("({})").format(
+                sql.SQL(", ").join(sql.Identifier(col) for col in id_columns)
+            )
+            placeholders = sql.SQL(", ").join(
+                sql.SQL("({})").format(sql.SQL(", ").join(sql.Placeholder() * len(id_columns)))
+                for _ in current_ids
+            )
+            count_query = sql.SQL(
+                "SELECT COUNT(*) FROM {} WHERE {} = %s AND {} NOT IN ({})"
+            ).format(
+                sql.Identifier(table_name),
+                sql.Identifier(date_column),
+                id_cols_sql,
+                placeholders,
+            )
+            # Flatten the list of tuples for params
+            id_params = [val for id_tuple in current_ids for val in id_tuple]
+            params = tuple([sync_date] + id_params)
 
-        # Count records to delete
-        count_query = sql.SQL("SELECT COUNT(*) FROM {} WHERE {} = %s AND {} NOT IN ({})").format(
-            sql.Identifier(table_name),
-            sql.Identifier(date_column),
-            sql.Identifier(id_column),
-            sql.SQL(", ").join(sql.Placeholder() * len(current_ids)),
-        )
-        params = tuple([sync_date] + current_ids_list)
         count_result = self.fetchall(count_query.as_string(self.conn), params)
         return count_result[0][0] if count_result else 0
 
@@ -494,27 +568,64 @@ class SQLiteBackend:
     def delete_stale_records(
         self,
         table_name: str,
-        id_column: str,
+        id_columns: list[str],
         date_column: str,
         sync_date: str,
-        current_ids: set[str],
+        current_ids: set[tuple],
     ) -> int:
-        """Delete records from database that aren't in current CSV."""
+        """Delete records from database that aren't in current CSV.
+
+        Args:
+            table_name: Name of the table
+            id_columns: List of ID column names (for compound keys)
+            date_column: Name of the date column
+            sync_date: Date value to filter by
+            current_ids: Set of ID tuples from the current CSV
+
+        Returns:
+            Count of records deleted
+        """
         if not current_ids:
             return 0
 
-        current_ids_list = list(current_ids)
-        placeholders = ", ".join("?" * len(current_ids))
+        # Build WHERE clause for compound keys
+        if len(id_columns) == 1:
+            # Single key - simpler query
+            current_ids_list = [
+                id_val[0] if isinstance(id_val, tuple) else id_val for id_val in current_ids
+            ]
+            placeholders = ", ".join("?" * len(current_ids_list))
+            count_query = f'SELECT COUNT(*) FROM "{table_name}" WHERE "{date_column}" = ? AND "{id_columns[0]}" NOT IN ({placeholders})'
+            params = tuple([sync_date] + current_ids_list)
+        else:
+            # Compound key - SQLite doesn't support row value constructors in NOT IN
+            # Use a different approach: WHERE NOT EXISTS with a subquery
+            # Build condition like: NOT (col1 = ? AND col2 = ?) AND NOT (col1 = ? AND col2 = ?) ...
+            conditions = []
+            params_list = [sync_date]
+            for id_tuple in current_ids:
+                condition_parts = [f'"{col}" = ?' for col in id_columns]
+                conditions.append(f"({' AND '.join(condition_parts)})")
+                params_list.extend(id_tuple)
 
-        # Get count before delete
-        count_query = f'SELECT COUNT(*) FROM "{table_name}" WHERE "{date_column}" = ? AND "{id_column}" NOT IN ({placeholders})'
-        params = tuple([sync_date] + current_ids_list)
+            where_clause = " AND ".join(f"NOT {cond}" for cond in conditions)
+            count_query = (
+                f'SELECT COUNT(*) FROM "{table_name}" WHERE "{date_column}" = ? AND {where_clause}'
+            )
+            params = tuple(params_list)
+
         count_result = self.fetchall(count_query, params)
         deleted_count = count_result[0][0] if count_result else 0
 
-        # Execute delete
-        query = f'DELETE FROM "{table_name}" WHERE "{date_column}" = ? AND "{id_column}" NOT IN ({placeholders})'
-        self.execute(query, params)
+        # Execute delete using same logic
+        if len(id_columns) == 1:
+            delete_query = f'DELETE FROM "{table_name}" WHERE "{date_column}" = ? AND "{id_columns[0]}" NOT IN ({placeholders})'
+        else:
+            delete_query = (
+                f'DELETE FROM "{table_name}" WHERE "{date_column}" = ? AND {where_clause}'
+            )
+
+        self.execute(delete_query, params)
         self.commit()
 
         return deleted_count
@@ -556,19 +667,19 @@ class SQLiteBackend:
     def count_stale_records(
         self,
         table_name: str,
-        id_column: str,
+        id_columns: list[str],
         date_column: str,
         sync_date: str,
-        current_ids: set[str],
+        current_ids: set[tuple],
     ) -> int:
         """Count records that would be deleted without actually deleting them.
 
         Args:
             table_name: Name of the table
-            id_column: Name of the ID column
+            id_columns: List of ID column names (for compound keys)
             date_column: Name of the date column
             sync_date: Date value to filter by
-            current_ids: Set of IDs from the current CSV
+            current_ids: Set of ID tuples from the current CSV
 
         Returns:
             Count of records that would be deleted
@@ -576,12 +687,30 @@ class SQLiteBackend:
         if not current_ids:
             return 0
 
-        current_ids_list = list(current_ids)
-        placeholders = ", ".join("?" * len(current_ids))
+        # Build WHERE clause for compound keys
+        if len(id_columns) == 1:
+            # Single key - simpler query
+            current_ids_list = [
+                id_val[0] if isinstance(id_val, tuple) else id_val for id_val in current_ids
+            ]
+            placeholders = ", ".join("?" * len(current_ids_list))
+            count_query = f'SELECT COUNT(*) FROM "{table_name}" WHERE "{date_column}" = ? AND "{id_columns[0]}" NOT IN ({placeholders})'
+            params = tuple([sync_date] + current_ids_list)
+        else:
+            # Compound key - use NOT approach
+            conditions = []
+            params_list = [sync_date]
+            for id_tuple in current_ids:
+                condition_parts = [f'"{col}" = ?' for col in id_columns]
+                conditions.append(f"({' AND '.join(condition_parts)})")
+                params_list.extend(id_tuple)
 
-        # Count records to delete
-        count_query = f'SELECT COUNT(*) FROM "{table_name}" WHERE "{date_column}" = ? AND "{id_column}" NOT IN ({placeholders})'
-        params = tuple([sync_date] + current_ids_list)
+            where_clause = " AND ".join(f"NOT {cond}" for cond in conditions)
+            count_query = (
+                f'SELECT COUNT(*) FROM "{table_name}" WHERE "{date_column}" = ? AND {where_clause}'
+            )
+            params = tuple(params_list)
+
         count_result = self.fetchall(count_query, params)
         return count_result[0][0] if count_result else 0
 
@@ -821,7 +950,7 @@ class DatabaseConnection:
         sync_columns: list[Any],
         primary_keys: list[str],
         sync_date: str | None,
-    ) -> tuple[int, set[str]]:
+    ) -> tuple[int, set[tuple]]:
         """Process and upsert CSV rows into database.
 
         Args:
@@ -832,10 +961,10 @@ class DatabaseConnection:
             sync_date: Optional date value to store in date column
 
         Returns:
-            Tuple of (rows_synced, synced_ids)
+            Tuple of (rows_synced, synced_ids) where synced_ids are tuples of ID values
         """
         rows_synced = 0
-        synced_ids = set()
+        synced_ids: set[tuple] = set()
 
         for row in reader:
             row_data = {}
@@ -849,9 +978,9 @@ class DatabaseConnection:
 
             self.upsert_row(job.target_table, primary_keys, row_data)
 
-            # Track synced IDs for cleanup (use first ID column for cleanup tracking)
-            first_id_column = job.id_mapping[0].db_column
-            synced_ids.add(row_data[first_id_column])
+            # Track synced IDs as tuples (for compound key support)
+            id_values = tuple(row_data[id_col.db_column] for id_col in job.id_mapping)
+            synced_ids.add(id_values)
             rows_synced += 1
 
         return rows_synced, synced_ids
@@ -862,7 +991,7 @@ class DatabaseConnection:
         job: SyncJob,
         sync_columns: list[Any],
         sync_date: str | None,
-    ) -> tuple[int, set[str]]:
+    ) -> tuple[int, set[tuple]]:
         """Count CSV rows and track synced IDs without database operations.
 
         This helper method processes the CSV to count rows and collect IDs that would be synced,
@@ -875,10 +1004,10 @@ class DatabaseConnection:
             sync_date: Optional date value
 
         Returns:
-            Tuple of (row_count, synced_ids)
+            Tuple of (row_count, synced_ids) where synced_ids are tuples of ID values
         """
         row_count = 0
-        synced_ids = set()
+        synced_ids: set[tuple] = set()
 
         with open(csv_path, encoding="utf-8") as f:
             reader = csv.DictReader(f)
@@ -892,9 +1021,9 @@ class DatabaseConnection:
                 if job.date_mapping and sync_date:
                     row_data[job.date_mapping.db_column] = sync_date
 
-                # Track synced IDs
-                first_id_column = job.id_mapping[0].db_column
-                synced_ids.add(row_data[first_id_column])
+                # Track synced IDs as tuples (for compound key support)
+                id_values = tuple(row_data[id_col.db_column] for id_col in job.id_mapping)
+                synced_ids.add(id_values)
                 row_count += 1
 
         return row_count, synced_ids
@@ -980,10 +1109,10 @@ class DatabaseConnection:
 
         # Count stale records that would be deleted
         if job.date_mapping and sync_date and summary.table_exists:
-            first_id_column = job.id_mapping[0].db_column
+            id_columns = [id_col.db_column for id_col in job.id_mapping]
             summary.rows_to_delete = self.count_stale_records(
                 job.target_table,
-                first_id_column,
+                id_columns,
                 job.date_mapping.db_column,
                 sync_date,
                 synced_ids,
@@ -1022,10 +1151,10 @@ class DatabaseConnection:
 
         # Clean up stale records if date_mapping is configured
         if job.date_mapping and sync_date:
-            first_id_column = job.id_mapping[0].db_column
+            id_columns = [id_col.db_column for id_col in job.id_mapping]
             self.delete_stale_records(
                 job.target_table,
-                first_id_column,
+                id_columns,
                 job.date_mapping.db_column,
                 sync_date,
                 synced_ids,
