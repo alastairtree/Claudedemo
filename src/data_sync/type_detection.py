@@ -91,6 +91,20 @@ def _is_datetime(value: str) -> bool:
     return any(re.match(pattern, value.strip()) for pattern in datetime_patterns)
 
 
+def detect_nullable(values: list[str], total_rows: int) -> bool:
+    """Detect if a column should be nullable based on sample values.
+
+    Args:
+        values: List of non-empty string values from the column
+        total_rows: Total number of rows in the CSV
+
+    Returns:
+        True if column has any empty/null values, False otherwise
+    """
+    # If we have fewer values than total rows, there are empty values
+    return len(values) < total_rows
+
+
 def analyze_csv_types(csv_path: Path) -> dict[str, str]:
     """Analyze a CSV file and detect data types for each column.
 
@@ -120,6 +134,45 @@ def analyze_csv_types(csv_path: Path) -> dict[str, str]:
 
     # Detect type for each column
     return {col: detect_column_type(values) for col, values in column_values.items()}
+
+
+def analyze_csv_types_and_nullable(csv_path: Path) -> dict[str, tuple[str, bool]]:
+    """Analyze a CSV file and detect data types and nullable status for each column.
+
+    Args:
+        csv_path: Path to the CSV file
+
+    Returns:
+        Dictionary mapping column names to (data_type, nullable) tuples
+    """
+    column_values: dict[str, list[str]] = {}
+    total_rows = 0
+
+    with open(csv_path, encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+
+        if not reader.fieldnames:
+            return {}
+
+        # Initialize empty lists for each column
+        for col in reader.fieldnames:
+            column_values[col] = []
+
+        # Collect values for each column and count total rows
+        for row in reader:
+            total_rows += 1
+            for col in reader.fieldnames:
+                if col in row and row[col] and row[col].strip():
+                    column_values[col].append(row[col])
+
+    # Detect type and nullable for each column
+    result = {}
+    for col, values in column_values.items():
+        data_type = detect_column_type(values)
+        nullable = detect_nullable(values, total_rows)
+        result[col] = (data_type, nullable)
+
+    return result
 
 
 def suggest_id_column(columns: list[str], matchers: list[str] | None = None) -> str:

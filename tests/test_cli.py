@@ -148,10 +148,10 @@ class TestSuggestIndexes:
         from data_sync.cli_prepare import suggest_indexes
 
         columns = {
-            "id": "integer",
-            "created_date": "date",
-            "updated_at": "datetime",
-            "name": "text",
+            "id": ("integer", False),
+            "created_date": ("date", False),
+            "updated_at": ("datetime", True),
+            "name": ("text", True),
         }
 
         indexes = suggest_indexes(columns, "id")
@@ -174,10 +174,10 @@ class TestSuggestIndexes:
         from data_sync.cli_prepare import suggest_indexes
 
         columns = {
-            "id": "integer",
-            "user_id": "integer",
-            "account_key": "text",
-            "name": "text",
+            "id": ("integer", False),
+            "user_id": ("integer", False),
+            "account_key": ("text", True),
+            "name": ("text", False),
         }
 
         indexes = suggest_indexes(columns, "id")
@@ -200,8 +200,8 @@ class TestSuggestIndexes:
         from data_sync.cli_prepare import suggest_indexes
 
         columns = {
-            "user_id": "integer",
-            "created_at": "datetime",
+            "user_id": ("integer", False),
+            "created_at": ("datetime", False),
         }
 
         indexes = suggest_indexes(columns, "user_id")
@@ -215,13 +215,13 @@ class TestSuggestIndexes:
         from data_sync.cli_prepare import suggest_indexes
 
         columns = {
-            "order_id": "integer",
-            "customer_id": "integer",
-            "product_key": "text",
-            "order_date": "date",
-            "delivery_date": "datetime",
-            "total_amount": "float",
-            "notes": "text",
+            "order_id": ("integer", False),
+            "customer_id": ("integer", False),
+            "product_key": ("text", True),
+            "order_date": ("date", False),
+            "delivery_date": ("datetime", True),
+            "total_amount": ("float", False),
+            "notes": ("text", True),
         }
 
         indexes = suggest_indexes(columns, "order_id")
@@ -247,9 +247,9 @@ class TestSuggestIndexes:
         from data_sync.cli_prepare import suggest_indexes
 
         columns = {
-            "id": "integer",
-            "name": "text",
-            "description": "text",
+            "id": ("integer", False),
+            "name": ("text", True),
+            "description": ("text", True),
         }
 
         indexes = suggest_indexes(columns, "id")
