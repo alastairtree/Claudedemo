@@ -856,6 +856,49 @@ class DatabaseConnection:
 
         return rows_synced, synced_ids
 
+    def _count_and_track_csv_rows(
+        self,
+        csv_path: Path,
+        job: SyncJob,
+        sync_columns: list[Any],
+        sync_date: str | None,
+    ) -> tuple[int, set[str]]:
+        """Count CSV rows and track synced IDs without database operations.
+
+        This helper method processes the CSV to count rows and collect IDs that would be synced,
+        which is shared logic between dry-run and actual sync operations.
+
+        Args:
+            csv_path: Path to CSV file
+            job: SyncJob configuration
+            sync_columns: List of ColumnMapping objects
+            sync_date: Optional date value
+
+        Returns:
+            Tuple of (row_count, synced_ids)
+        """
+        row_count = 0
+        synced_ids = set()
+
+        with open(csv_path, encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                row_data = {}
+                for col_mapping in sync_columns:
+                    if col_mapping.csv_column in row:
+                        row_data[col_mapping.db_column] = row[col_mapping.csv_column]
+
+                # Add sync date if configured
+                if job.date_mapping and sync_date:
+                    row_data[job.date_mapping.db_column] = sync_date
+
+                # Track synced IDs
+                first_id_column = job.id_mapping[0].db_column
+                synced_ids.add(row_data[first_id_column])
+                row_count += 1
+
+        return row_count, synced_ids
+
     def _prepare_sync(
         self, csv_path: Path, job: SyncJob
     ) -> tuple[set[str], list[Any], dict[str, str]]:
@@ -930,24 +973,10 @@ class DatabaseConnection:
                     if index.name.lower() not in existing_indexes:
                         summary.new_indexes.append(index.name)
 
-        # Count rows that would be synced
-        synced_ids = set()
-        with open(csv_path, encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                row_data = {}
-                for col_mapping in sync_columns:
-                    if col_mapping.csv_column in row:
-                        row_data[col_mapping.db_column] = row[col_mapping.csv_column]
-
-                # Add sync date if configured
-                if job.date_mapping and sync_date:
-                    row_data[job.date_mapping.db_column] = sync_date
-
-                # Track synced IDs
-                first_id_column = job.id_mapping[0].db_column
-                synced_ids.add(row_data[first_id_column])
-                summary.rows_to_sync += 1
+        # Count rows and track IDs that would be synced
+        summary.rows_to_sync, synced_ids = self._count_and_track_csv_rows(
+            csv_path, job, sync_columns, sync_date
+        )
 
         # Count stale records that would be deleted
         if job.date_mapping and sync_date and summary.table_exists:
