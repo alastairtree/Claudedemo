@@ -12,17 +12,25 @@ import yaml
 class ColumnMapping:
     """Mapping between CSV and database columns."""
 
-    def __init__(self, csv_column: str, db_column: str, data_type: str | None = None) -> None:
+    def __init__(
+        self,
+        csv_column: str,
+        db_column: str,
+        data_type: str | None = None,
+        nullable: bool | None = None,
+    ) -> None:
         """Initialize column mapping.
 
         Args:
             csv_column: Name of the column in the CSV file
             db_column: Name of the column in the database
             data_type: Optional data type (integer, float, date, datetime, text, varchar(N))
+            nullable: Optional flag indicating if NULL values are allowed (True=NULL, False=NOT NULL)
         """
         self.csv_column = csv_column
         self.db_column = db_column
         self.data_type = data_type
+        self.nullable = nullable
 
 
 class DateMapping:
@@ -233,11 +241,11 @@ class SyncConfig:
 
         Supports two formats:
         1. Simple: csv_column: db_column
-        2. Extended: csv_column: {db_column: name, type: data_type}
+        2. Extended: csv_column: {db_column: name, type: data_type, nullable: true/false}
 
         Args:
             csv_col: CSV column name
-            value: Either a string (db_column) or dict with db_column and optional type
+            value: Either a string (db_column) or dict with db_column and optional type/nullable
             job_name: Job name (for error messages)
 
         Returns:
@@ -250,14 +258,17 @@ class SyncConfig:
             # Simple format: csv_column: db_column
             return ColumnMapping(csv_column=csv_col, db_column=value)
         elif isinstance(value, dict):
-            # Extended format: csv_column: {db_column: name, type: data_type}
+            # Extended format: csv_column: {db_column: name, type: data_type, nullable: true/false}
             if "db_column" not in value:
                 raise ValueError(
                     f"Job '{job_name}' column '{csv_col}' extended mapping must have 'db_column'"
                 )
             db_column = value["db_column"]
             data_type = value.get("type")  # Optional
-            return ColumnMapping(csv_column=csv_col, db_column=db_column, data_type=data_type)
+            nullable = value.get("nullable")  # Optional
+            return ColumnMapping(
+                csv_column=csv_col, db_column=db_column, data_type=data_type, nullable=nullable
+            )
         else:
             raise ValueError(
                 f"Job '{job_name}' column '{csv_col}' must be string or dict, got {type(value)}"
@@ -394,11 +405,13 @@ class SyncConfig:
             # Build id_mapping dict (supports compound primary keys)
             id_mapping_dict = {}
             for id_col in job.id_mapping:
-                if id_col.data_type:
-                    id_mapping_dict[id_col.csv_column] = {
-                        "db_column": id_col.db_column,
-                        "type": id_col.data_type,
-                    }
+                if id_col.data_type or id_col.nullable is not None:
+                    mapping_dict = {"db_column": id_col.db_column}
+                    if id_col.data_type:
+                        mapping_dict["type"] = id_col.data_type
+                    if id_col.nullable is not None:
+                        mapping_dict["nullable"] = id_col.nullable
+                    id_mapping_dict[id_col.csv_column] = mapping_dict
                 else:
                     id_mapping_dict[id_col.csv_column] = id_col.db_column
 
@@ -411,11 +424,13 @@ class SyncConfig:
             if job.columns:
                 columns_dict = {}
                 for col in job.columns:
-                    if col.data_type:
-                        columns_dict[col.csv_column] = {
-                            "db_column": col.db_column,
-                            "type": col.data_type,
-                        }
+                    if col.data_type or col.nullable is not None:
+                        mapping_dict = {"db_column": col.db_column}
+                        if col.data_type:
+                            mapping_dict["type"] = col.data_type
+                        if col.nullable is not None:
+                            mapping_dict["nullable"] = col.nullable
+                        columns_dict[col.csv_column] = mapping_dict
                     else:
                         columns_dict[col.csv_column] = col.db_column
                 job_dict["columns"] = columns_dict

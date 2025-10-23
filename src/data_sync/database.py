@@ -896,18 +896,26 @@ class DatabaseConnection:
         return sync_columns
 
     def _build_column_definitions(self, sync_columns: list[Any], job: SyncJob) -> dict[str, str]:
-        """Build column definitions with SQL types.
+        """Build column definitions with SQL types and nullable constraints.
 
         Args:
             sync_columns: List of ColumnMapping objects
             job: SyncJob configuration
 
         Returns:
-            Dictionary mapping column names to SQL types
+            Dictionary mapping column names to SQL type definitions (including NULL/NOT NULL)
         """
         columns_def = {}
         for col_mapping in sync_columns:
             sql_type = self.backend.map_data_type(col_mapping.data_type)
+
+            # Add nullable constraint if specified
+            if col_mapping.nullable is not None:
+                if col_mapping.nullable:
+                    sql_type += " NULL"
+                else:
+                    sql_type += " NOT NULL"
+
             columns_def[col_mapping.db_column] = sql_type
 
         # Add date column if date_mapping is configured
