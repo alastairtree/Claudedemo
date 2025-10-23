@@ -427,10 +427,9 @@ def test_dry_run_compound_key_with_date_mapping_matches_sync(db_url: str, tmp_pa
     assert dry_run_summary_update.rows_to_sync == rows_synced_update
     assert dry_run_summary_update.rows_to_sync == 5  # 4 updates + 1 new
 
-    # NOTE: Current limitation with compound keys and date-based cleanup:
-    # The stale record detection uses only the first ID column (store_id) to track
-    # which records should be deleted. This means:
-    # - Store 3 products (B002, E005) are detected as stale (2 deletions)
-    # - Store 1, product C003 is NOT detected as stale because Store 1 still exists
-    # This is expected behavior given the current implementation
-    assert dry_run_summary_update.rows_to_delete == 2  # Store 3 had 2 products
+    # With compound key fix, all stale records should be detected:
+    # - Store 1, product C003 (removed)
+    # - Store 3, product B002 (removed)
+    # - Store 3, product E005 (removed)
+    # Total: 3 deletions
+    assert dry_run_summary_update.rows_to_delete == 3
