@@ -8,6 +8,7 @@ Sync CSV and CDF science files into PostgreSQL database using configuration-base
 
 ## Features
 
+- **Dual Interface**: Use as a CLI tool or import as a Python library
 - **Configuration-Based**: Define sync jobs in YAML with column mappings
 - **Column Mapping**: Rename columns between CSV and database
 - **Selective Sync**: Choose which columns to sync or sync all
@@ -21,9 +22,10 @@ Sync CSV and CDF science files into PostgreSQL database using configuration-base
 - **Multi-Database Support**: Works with PostgreSQL and SQLite
 - **Modern Python**: Built for Python 3.11+ with full type hints
 - **CLI Interface**: User-friendly command-line interface using Click
+- **Programmatic API**: Full Python API for integration into applications
 - **Rich Output**: Beautiful terminal output with Rich library
 - **Code Quality**: Automated linting with Ruff and type checking with MyPy
-- **CI/CD**: GitHub Actions workflow for automated testing and builds
+- **CI/CD**: GitHub Actions workflow with automated PyPI publishing
 - **Cross-Platform**: Tested on Linux, Windows, and macOS
 
 ## Installation
@@ -31,11 +33,26 @@ Sync CSV and CDF science files into PostgreSQL database using configuration-base
 ### Prerequisites
 
 - Python 3.11 or higher
-- [uv](https://docs.astral.sh/uv/) (recommended) or pip
-- PostgreSQL database
-- Docker (for running integration tests)
+- PostgreSQL database (for database operations)
+- Docker (only for running integration tests during development)
+
+### Install from PyPI (Recommended)
+
+Install the package using pip or uv:
+
+```bash
+# Using pip
+pip install data-sync
+
+# OR using uv
+uv pip install data-sync
+```
+
+This installs the `data-sync` CLI tool and makes the package available for programmatic use.
 
 ### Install from source
+
+For development or to get the latest unreleased features:
 
 ```bash
 # Clone the repository
@@ -276,6 +293,125 @@ data-sync sync sales_2024-01-15_corrected.csv config.yaml daily_sales
 - Automatic cleanup of removed records for specific dates
 - Preserves data from other dates
 - Perfect for daily/weekly/monthly data updates
+
+### Programmatic API Usage
+
+The `data-sync` package can be used programmatically as a Python library, allowing you to integrate it into your own applications:
+
+#### Basic Sync Operation
+
+```python
+from pathlib import Path
+from data_sync import sync_csv_to_postgres, SyncConfig
+
+# Load configuration
+config = SyncConfig.from_yaml(Path("config.yaml"))
+job = config.get_job("my_job")
+
+# Sync a CSV file
+rows_synced = sync_csv_to_postgres(
+    file_path=Path("data.csv"),
+    sync_job=job,
+    db_url="postgresql://user:pass@localhost/mydb"
+)
+print(f"Synced {rows_synced} rows")
+```
+
+#### Dry-Run Mode
+
+```python
+from data_sync import sync_csv_to_postgres_dry_run, SyncConfig
+from pathlib import Path
+
+config = SyncConfig.from_yaml(Path("config.yaml"))
+job = config.get_job("my_job")
+
+# Preview changes without modifying database
+summary = sync_csv_to_postgres_dry_run(
+    file_path=Path("data.csv"),
+    sync_job=job,
+    db_url="postgresql://user:pass@localhost/mydb"
+)
+
+print(f"Table exists: {summary.table_exists}")
+print(f"New columns: {summary.new_columns}")
+print(f"Rows to sync: {summary.rows_to_sync}")
+print(f"Rows to delete: {summary.rows_to_delete}")
+```
+
+#### Analyze CSV Files
+
+```python
+from data_sync import analyze_csv_types_and_nullable, suggest_id_column
+from pathlib import Path
+
+# Analyze a CSV file to detect column types
+column_info = analyze_csv_types_and_nullable(Path("data.csv"))
+
+for col_name, (data_type, nullable) in column_info.items():
+    null_str = "NULL" if nullable else "NOT NULL"
+    print(f"{col_name}: {data_type} {null_str}")
+
+# Suggest an ID column
+columns = list(column_info.keys())
+id_column = suggest_id_column(columns)
+print(f"Suggested ID column: {id_column}")
+```
+
+#### Create Configuration Programmatically
+
+```python
+from data_sync import SyncConfig, SyncJob, ColumnMapping, Index, IndexColumn
+from pathlib import Path
+
+# Create a sync job programmatically
+job = SyncJob(
+    name="users_sync",
+    target_table="users",
+    id_mapping=[
+        ColumnMapping(csv_column="user_id", db_column="id", data_type="integer")
+    ],
+    columns=[
+        ColumnMapping(csv_column="name", db_column="full_name", data_type="text"),
+        ColumnMapping(csv_column="email", db_column="email", data_type="text"),
+    ],
+    indexes=[
+        Index(
+            name="idx_email",
+            columns=[IndexColumn(column="email", order="ASC")]
+        )
+    ]
+)
+
+# Create config and add job
+config = SyncConfig(jobs={})
+config.add_or_update_job(job, force=False)
+
+# Save to file
+config.save_to_yaml(Path("config.yaml"))
+```
+
+#### Available API Functions
+
+The package exports the following main functions:
+
+- `sync_csv_to_postgres()` - Sync a CSV file to PostgreSQL
+- `sync_csv_to_postgres_dry_run()` - Preview sync without changes
+- `analyze_csv_types_and_nullable()` - Analyze CSV column types
+- `suggest_id_column()` - Suggest an ID column from a list of columns
+- `SyncConfig.from_yaml()` - Load configuration from YAML
+- `SyncConfig.save_to_yaml()` - Save configuration to YAML
+- `SyncJob` - Configuration class for sync jobs
+- `ColumnMapping` - Configuration class for column mappings
+- `Index` - Configuration class for database indexes
+- `DryRunSummary` - Result object from dry-run operations
+
+For complete API documentation, see the inline docstrings in the source code or use Python's `help()` function:
+
+```python
+from data_sync import sync_csv_to_postgres
+help(sync_csv_to_postgres)
+```
 
 #### Compound Primary Keys
 
