@@ -69,32 +69,41 @@ def _group_variables_by_record_count(
 
 
 def _expand_variable_to_columns(
-    variable: CDFVariable, cdf_file_path: Path
-) -> tuple[list[str], list[list[Any]]]:
+    variable: CDFVariable, cdf_file_path: Path, max_records: int | None = None
+) -> tuple[list[str], list[list[Any]], int]:
     """Expand a CDF variable into column names and data columns.
 
     Args:
         variable: The variable to expand
         cdf_file_path: Path to the CDF file
+        max_records: Maximum number of records to extract (None = all)
 
     Returns:
-        Tuple of (column_names, data_columns) where data_columns is a list of columns
+        Tuple of (column_names, data_columns, actual_records) where data_columns is a list of columns
+        and actual_records is the number of records actually extracted
     """
     column_names = get_column_names_for_variable(variable, cdf_file_path)
 
+    # Determine how many records to extract
+    actual_records = variable.num_records
+    if max_records is not None:
+        actual_records = min(actual_records, max_records)
+
     if not variable.is_array:
         # 1D variable - single column
-        data_columns = [
-            variable.data.tolist() if isinstance(variable.data, np.ndarray) else [variable.data]
-        ]
+        if isinstance(variable.data, np.ndarray):
+            data = variable.data[:actual_records].tolist()
+        else:
+            data = [variable.data]
+        data_columns = [data]
     else:
         # 2D variable - multiple columns
         data_columns = []
         for i in range(variable.array_size):
-            column_data = variable.data[:, i].tolist()
+            column_data = variable.data[:actual_records, i].tolist()
             data_columns.append(column_data)
 
-    return column_names, data_columns
+    return column_names, data_columns, actual_records
 
 
 def _generate_output_filename(
@@ -176,6 +185,7 @@ def extract_cdf_to_csv(
     automerge: bool = True,
     append: bool = False,
     variable_names: list[str] | None = None,
+    max_records: int | None = None,
 ) -> list[ExtractionResult]:
     """Extract data from a CDF file to CSV files.
 
@@ -186,6 +196,7 @@ def extract_cdf_to_csv(
         automerge: Whether to merge variables with same record count
         append: Whether to append to existing files
         variable_names: List of specific variables to extract (None = all)
+        max_records: Maximum number of records to extract per variable (None = all)
 
     Returns:
         List of ExtractionResult objects
@@ -240,12 +251,19 @@ def extract_cdf_to_csv(
             all_column_names = []
             all_data_columns = []
             var_names_in_group = []
+            actual_records_list = []
 
             for var in group_vars:
-                col_names, data_cols = _expand_variable_to_columns(var, cdf_file_path)
+                col_names, data_cols, actual_records = _expand_variable_to_columns(
+                    var, cdf_file_path, max_records
+                )
                 all_column_names.extend(col_names)
                 all_data_columns.extend(data_cols)
                 var_names_in_group.append(var.name)
+                actual_records_list.append(actual_records)
+
+            # Use the minimum actual records across all variables in the group
+            actual_record_count = min(actual_records_list) if actual_records_list else 0
 
             # Make column names unique
             all_column_names = _make_unique_column_names(all_column_names)
@@ -289,7 +307,7 @@ def extract_cdf_to_csv(
                     writer.writerow(all_column_names)
 
                 # Transpose data to write rows
-                for row_idx in range(record_count):
+                for row_idx in range(actual_record_count):
                     row = [col[row_idx] for col in all_data_columns]
                     writer.writerow(row)
 
@@ -297,7 +315,7 @@ def extract_cdf_to_csv(
             results.append(
                 ExtractionResult(
                     output_file=output_path,
-                    num_rows=record_count,
+                    num_rows=actual_record_count,
                     num_columns=len(all_column_names),
                     column_names=all_column_names,
                     file_size=file_size,
@@ -312,7 +330,9 @@ def extract_cdf_to_csv(
             if var.num_records < 2:
                 continue
 
-            col_names, data_cols = _expand_variable_to_columns(var, cdf_file_path)
+            col_names, data_cols, actual_records = _expand_variable_to_columns(
+                var, cdf_file_path, max_records
+            )
             col_names = _make_unique_column_names(col_names)
 
             base_filename = _generate_output_filename(filename_template, cdf_file_path, var.name)
@@ -352,7 +372,7 @@ def extract_cdf_to_csv(
                     writer.writerow(col_names)
 
                 # Transpose data to write rows
-                for row_idx in range(var.num_records):
+                for row_idx in range(actual_records):
                     row = [col[row_idx] for col in data_cols]
                     writer.writerow(row)
 
@@ -360,7 +380,7 @@ def extract_cdf_to_csv(
             results.append(
                 ExtractionResult(
                     output_file=output_path,
-                    num_rows=var.num_records,
+                    num_rows=actual_records,
                     num_columns=len(col_names),
                     column_names=col_names,
                     file_size=file_size,
