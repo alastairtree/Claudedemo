@@ -124,6 +124,51 @@ def _generate_output_filename(
     return filename
 
 
+def _get_unique_filename(base_filename: str, used_filenames: set[str]) -> str:
+    """Get a unique filename by adding a numerical suffix if needed.
+
+    Args:
+        base_filename: The base filename to use
+        used_filenames: Set of filenames already used in this extraction
+
+    Returns:
+        A unique filename
+    """
+    # If filename hasn't been used yet in this extraction, use it as-is
+    if base_filename not in used_filenames:
+        return base_filename
+
+    # Add numerical suffix to make it unique
+    base_name = Path(base_filename).stem
+    extension = Path(base_filename).suffix
+    counter = 1
+
+    while True:
+        new_filename = f"{base_name}_{counter}{extension}"
+        if new_filename not in used_filenames:
+            return new_filename
+        counter += 1
+
+
+def _validate_existing_csv_header(csv_path: Path, expected_columns: list[str]) -> bool:
+    """Validate that an existing CSV has the expected header.
+
+    Args:
+        csv_path: Path to the CSV file
+        expected_columns: Expected column names
+
+    Returns:
+        True if headers match, False otherwise
+    """
+    try:
+        with open(csv_path, encoding="utf-8") as f:
+            reader = csv.reader(f)
+            existing_header = next(reader, None)
+            return existing_header == expected_columns
+    except Exception:
+        return False
+
+
 def extract_cdf_to_csv(
     cdf_file_path: Path,
     output_dir: Path,
@@ -147,6 +192,8 @@ def extract_cdf_to_csv(
 
     Raises:
         ValueError: If specified variables are not found
+        FileExistsError: If output file exists and append is False
+        ValueError: If appending but headers don't match
     """
     # Read all variables
     all_variables = read_cdf_variables(cdf_file_path)
@@ -178,6 +225,7 @@ def extract_cdf_to_csv(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     results = []
+    used_filenames: set[str] = set()  # Track filenames used in this extraction
 
     if automerge:
         # Group variables by record count and create merged CSV files
@@ -202,21 +250,37 @@ def extract_cdf_to_csv(
             # Make column names unique
             all_column_names = _make_unique_column_names(all_column_names)
 
-            # Generate filename (use first variable name or add record count for uniqueness)
-            if len(var_names_in_group) == 1:
-                primary_var = var_names_in_group[0]
-            else:
-                # For merged groups, use descriptive name with record count
-                primary_var = f"merged_{record_count}records"
+            # Generate filename using first variable name
+            primary_var = var_names_in_group[0]
+            base_filename = _generate_output_filename(filename_template, cdf_file_path, primary_var)
 
-            output_filename = _generate_output_filename(
-                filename_template, cdf_file_path, primary_var
-            )
+            # Get unique filename (add numerical suffix if needed)
+            output_filename = _get_unique_filename(base_filename, used_filenames)
+            used_filenames.add(output_filename)
             output_path = output_dir / output_filename
+
+            # Check for existing file
+            if output_path.exists() and not append:
+                raise FileExistsError(
+                    f"Output file already exists: {output_path}. "
+                    "Use --append to add data to existing file."
+                )
+
+            # Validate header if appending
+            if (
+                append
+                and output_path.exists()
+                and not _validate_existing_csv_header(output_path, all_column_names)
+            ):
+                raise ValueError(
+                    f"Cannot append to {output_path}: "
+                    f"existing CSV has different columns. "
+                    f"Expected columns: {', '.join(all_column_names)}"
+                )
 
             # Write CSV
             mode = "a" if append and output_path.exists() else "w"
-            write_header = mode == "w" or not output_path.exists()
+            write_header = mode == "w"
 
             with open(output_path, mode, newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
@@ -251,12 +315,35 @@ def extract_cdf_to_csv(
             col_names, data_cols = _expand_variable_to_columns(var, cdf_file_path)
             col_names = _make_unique_column_names(col_names)
 
-            output_filename = _generate_output_filename(filename_template, cdf_file_path, var.name)
+            base_filename = _generate_output_filename(filename_template, cdf_file_path, var.name)
+
+            # Get unique filename (add numerical suffix if needed)
+            output_filename = _get_unique_filename(base_filename, used_filenames)
+            used_filenames.add(output_filename)
             output_path = output_dir / output_filename
+
+            # Check for existing file
+            if output_path.exists() and not append:
+                raise FileExistsError(
+                    f"Output file already exists: {output_path}. "
+                    "Use --append to add data to existing file."
+                )
+
+            # Validate header if appending
+            if (
+                append
+                and output_path.exists()
+                and not _validate_existing_csv_header(output_path, col_names)
+            ):
+                raise ValueError(
+                    f"Cannot append to {output_path}: "
+                    f"existing CSV has different columns. "
+                    f"Expected columns: {', '.join(col_names)}"
+                )
 
             # Write CSV
             mode = "a" if append and output_path.exists() else "w"
-            write_header = mode == "w" or not output_path.exists()
+            write_header = mode == "w"
 
             with open(output_path, mode, newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)

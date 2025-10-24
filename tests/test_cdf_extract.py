@@ -174,12 +174,103 @@ def test_extract_with_append_mode(solo_cdf_file: Path, tmp_path: Path) -> None:
         variable_names=["EPOCH"],
     )
 
-    # File should now have double the rows
+    # File should now have double the rows (header is not duplicated)
     with open(output_file, encoding="utf-8") as f:
         reader = csv.reader(f)
         rows = list(reader)
-        # -1 for header row
-        assert len(rows) - 1 == original_rows * 2
+        # First row is header, rest are data
+        assert len(rows) == original_rows * 2 + 1  # 1 header + 2x data
+
+
+def test_extract_file_exists_error(solo_cdf_file: Path, tmp_path: Path) -> None:
+    """Test that extraction fails if file exists and append is False."""
+    # First extraction
+    extract_cdf_to_csv(
+        cdf_file_path=solo_cdf_file,
+        output_dir=tmp_path,
+        filename_template="[SOURCE_FILE]-[VARIABLE_NAME].csv",
+        automerge=False,
+        append=False,
+        variable_names=["EPOCH"],
+    )
+
+    # Second extraction without append should fail
+    with pytest.raises(FileExistsError, match="Output file already exists"):
+        extract_cdf_to_csv(
+            cdf_file_path=solo_cdf_file,
+            output_dir=tmp_path,
+            filename_template="[SOURCE_FILE]-[VARIABLE_NAME].csv",
+            automerge=False,
+            append=False,
+            variable_names=["EPOCH"],
+        )
+
+
+def test_extract_append_header_mismatch(solo_cdf_file: Path, tmp_path: Path) -> None:
+    """Test that appending with different headers fails."""
+    # Create a CSV with different headers
+    csv_file = tmp_path / "solo_L2_mag-rtn-normal-1-minute-internal_20241225_V00-EPOCH.csv"
+    with open(csv_file, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["wrong_column", "another_wrong_column"])
+        writer.writerow([1, 2])
+
+    # Try to append with different headers
+    with pytest.raises(ValueError, match="existing CSV has different columns"):
+        extract_cdf_to_csv(
+            cdf_file_path=solo_cdf_file,
+            output_dir=tmp_path,
+            filename_template="[SOURCE_FILE]-[VARIABLE_NAME].csv",
+            automerge=False,
+            append=True,
+            variable_names=["EPOCH"],
+        )
+
+
+def test_extract_filename_uses_first_variable(imap_cdf_file: Path, tmp_path: Path) -> None:
+    """Test that merged CSV files use the first variable name in filename."""
+    results = extract_cdf_to_csv(
+        cdf_file_path=imap_cdf_file,
+        output_dir=tmp_path,
+        filename_template="[SOURCE_FILE]-[VARIABLE_NAME].csv",
+        automerge=True,
+        append=False,
+        variable_names=["vectors", "epoch", "vector_magnitude"],
+    )
+
+    # All three variables have the same record count, should be merged
+    assert len(results) == 1
+    result = results[0]
+
+    # Filename should use the first variable name (vectors)
+    assert "vectors" in result.output_file.name
+    # Should NOT contain record count
+    assert "records" not in result.output_file.name
+
+
+def test_extract_filename_collision_adds_suffix(solo_cdf_file: Path, tmp_path: Path) -> None:
+    """Test that filename collisions within one extraction get numerical suffixes."""
+    # Create two CSV files manually that would cause collision
+    # We'll extract variables with the same name pattern
+
+    # Extract with automerge disabled to get separate files
+    results = extract_cdf_to_csv(
+        cdf_file_path=solo_cdf_file,
+        output_dir=tmp_path,
+        filename_template="test.csv",  # Same name for all
+        automerge=False,
+        append=False,
+        variable_names=None,
+    )
+
+    # All variables should have unique filenames
+    filenames = [r.output_file.name for r in results]
+    assert len(filenames) == len(set(filenames))  # All unique
+
+    # First should be "test.csv", rest should have suffixes
+    assert "test.csv" in filenames
+    if len(filenames) > 1:
+        assert any("test_" in f for f in filenames)
 
 
 def test_extract_array_variables_column_expansion(imap_cdf_file: Path, tmp_path: Path) -> None:
