@@ -52,7 +52,7 @@ class TestInspectCommand:
     def test_inspect_csv_with_custom_records(self, cli_runner: CliRunner, tmp_path: Path) -> None:
         """Test inspect CSV with custom record count."""
         csv_file = tmp_path / "test.csv"
-        csv_content = "id,value\n" + "\n".join(f"{i},{i*10}" for i in range(1, 11))
+        csv_content = "id,value\n" + "\n".join(f"{i},{i * 10}" for i in range(1, 11))
         csv_file.write_text(csv_content)
 
         result = cli_runner.invoke(main, ["inspect", str(csv_file), "--records", "3"])
@@ -157,9 +157,7 @@ class TestInspectCDFFiles:
         # Check variable details
         assert "54,366" in result.output or "54366" in result.output  # Record count
 
-    def test_inspect_cdf_with_different_record_counts(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_inspect_cdf_with_different_record_counts(self, cli_runner: CliRunner) -> None:
         """Test inspect CDF with different record count options."""
         cdf_file = Path("tests/data/solo_L2_mag-rtn-normal-1-minute-internal_20241225_V00.cdf")
         if not cdf_file.exists():
@@ -190,12 +188,14 @@ class TestInspectCDFFiles:
         # Check that variables with more records appear first in detailed view
         output_lines = result.output.split("\n")
         epoch_index = next(
-            i for i, line in enumerate(output_lines) if line.strip().startswith("EPOCH")
+            i
+            for i, line in enumerate(output_lines)
+            if line.strip().startswith("EPOCH")
             and "Variable Details" in "\n".join(output_lines[:i])
         )
         lbl_index = next(
             (i for i, line in enumerate(output_lines) if line.strip().startswith("LBL1_B_RTN")),
-            None
+            None,
         )
 
         if lbl_index is not None:

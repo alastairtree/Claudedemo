@@ -112,7 +112,7 @@ def _format_attribute_value(attr_values: object) -> str:
 
     # Truncate long values
     if len(value_str) > MAX_VALUE_LENGTH:
-        value_str = value_str[:MAX_VALUE_LENGTH - 3] + "..."
+        value_str = value_str[: MAX_VALUE_LENGTH - 3] + "..."
 
     return value_str
 
@@ -197,7 +197,9 @@ def inspect_cdf(file_path: Path, num_records: int) -> None:
                         num_recs = 1
                     var_info_list.append((var_name, data, num_recs))
                 except Exception as e:
-                    console.print(f"[yellow]Warning: Could not read variable {var_name}: {e}[/yellow]")
+                    console.print(
+                        f"[yellow]Warning: Could not read variable {var_name}: {e}[/yellow]"
+                    )
 
             # Sort by number of records (descending)
             var_info_list.sort(key=lambda x: x[2], reverse=True)
@@ -282,7 +284,9 @@ def inspect_cdf(file_path: Path, num_records: int) -> None:
                         for i in range(min(num_records, num_recs)):
                             row_values = [str(i)]
                             for col_idx in range(num_cols_to_show):
-                                row_values.append(_format_data_value(data[i, col_idx], is_numeric=True))
+                                row_values.append(
+                                    _format_data_value(data[i, col_idx], is_numeric=True)
+                                )
                             if data.shape[1] > MAX_COLUMNS_TO_DISPLAY:
                                 row_values.append("...")
                             sample_table.add_row(*row_values)
