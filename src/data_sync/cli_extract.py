@@ -61,6 +61,12 @@ def format_file_size(size_bytes: int) -> str:
     multiple=True,
     help="Specific variable names to extract (can be specified multiple times). Default: extract all variables.",
 )
+@click.option(
+    "--max-records",
+    type=int,
+    default=None,
+    help="Maximum number of records to extract per variable (default: extract all records)",
+)
 def extract(
     files: tuple[Path, ...],
     output_path: Path | None,
@@ -68,6 +74,7 @@ def extract(
     automerge: bool,
     append: bool,
     variables: tuple[str, ...],
+    max_records: int | None,
 ) -> None:
     """Extract data from CDF files to CSV format.
 
@@ -90,6 +97,9 @@ def extract(
         # Extract and append to existing CSV files
         data-sync extract data1.cdf data2.cdf --append
 
+        # Extract first 100 records from each variable
+        data-sync extract data.cdf --max-records 100
+
         # Extract multiple files with auto-merge enabled
         data-sync extract *.cdf -o csv_output/
     """
@@ -105,7 +115,10 @@ def extract(
             console.print(f"[dim]  Extracting variables: {', '.join(variable_list)}[/dim]")
         console.print(f"[dim]  Output directory: {output_dir}[/dim]")
         console.print(f"[dim]  Auto-merge: {automerge}[/dim]")
-        console.print(f"[dim]  Append mode: {append}[/dim]\n")
+        console.print(f"[dim]  Append mode: {append}[/dim]")
+        if max_records is not None:
+            console.print(f"[dim]  Max records per variable: {max_records:,}[/dim]")
+        console.print()
 
         total_files_created = 0
         total_rows = 0
@@ -121,6 +134,7 @@ def extract(
                     automerge=automerge,
                     append=append,
                     variable_names=variable_list,
+                    max_records=max_records,
                 )
 
                 if not results:

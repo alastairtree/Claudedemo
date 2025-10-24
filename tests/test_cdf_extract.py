@@ -368,3 +368,99 @@ def test_unique_column_names(solo_cdf_file: Path, tmp_path: Path) -> None:
     for result in results:
         # Check that all column names are unique
         assert len(result.column_names) == len(set(result.column_names))
+
+
+def test_extract_with_max_records(solo_cdf_file: Path, tmp_path: Path) -> None:
+    """Test extraction with max_records limits the number of rows."""
+    max_records = 100
+
+    results = extract_cdf_to_csv(
+        cdf_file_path=solo_cdf_file,
+        output_dir=tmp_path,
+        filename_template="[SOURCE_FILE]-[VARIABLE_NAME].csv",
+        automerge=False,
+        append=False,
+        variable_names=["EPOCH"],
+        max_records=max_records,
+    )
+
+    assert len(results) == 1
+    result = results[0]
+
+    # Should have exactly max_records rows
+    assert result.num_rows == max_records
+
+    # Verify actual file has correct number of rows
+    with open(result.output_file, encoding="utf-8") as f:
+        reader = csv.reader(f)
+        rows = list(reader)
+        # 1 header + max_records data rows
+        assert len(rows) == max_records + 1
+
+
+def test_extract_max_records_larger_than_available(solo_cdf_file: Path, tmp_path: Path) -> None:
+    """Test that max_records larger than available data extracts all data."""
+    max_records = 999999  # Larger than available data
+
+    results = extract_cdf_to_csv(
+        cdf_file_path=solo_cdf_file,
+        output_dir=tmp_path,
+        filename_template="[SOURCE_FILE]-[VARIABLE_NAME].csv",
+        automerge=False,
+        append=False,
+        variable_names=["EPOCH"],
+        max_records=max_records,
+    )
+
+    assert len(results) == 1
+    result = results[0]
+
+    # Should have all available rows (1440 in the solo file)
+    assert result.num_rows == 1440
+
+
+def test_extract_max_records_with_automerge(imap_cdf_file: Path, tmp_path: Path) -> None:
+    """Test max_records with automerge enabled."""
+    max_records = 50
+
+    results = extract_cdf_to_csv(
+        cdf_file_path=imap_cdf_file,
+        output_dir=tmp_path,
+        filename_template="[SOURCE_FILE]-[VARIABLE_NAME].csv",
+        automerge=True,
+        append=False,
+        variable_names=["vectors", "epoch"],
+        max_records=max_records,
+    )
+
+    # Both variables have the same record count and should be merged
+    assert len(results) == 1
+    result = results[0]
+
+    # Should have max_records rows
+    assert result.num_rows == max_records
+
+    # Verify the CSV file
+    with open(result.output_file, encoding="utf-8") as f:
+        reader = csv.reader(f)
+        rows = list(reader)
+        assert len(rows) == max_records + 1  # 1 header + max_records data
+
+
+def test_extract_max_records_none_extracts_all(solo_cdf_file: Path, tmp_path: Path) -> None:
+    """Test that max_records=None extracts all data."""
+    results = extract_cdf_to_csv(
+        cdf_file_path=solo_cdf_file,
+        output_dir=tmp_path,
+        filename_template="[SOURCE_FILE]-[VARIABLE_NAME].csv",
+        automerge=False,
+        append=False,
+        variable_names=["EPOCH"],
+        max_records=None,
+    )
+
+    assert len(results) == 1
+    result = results[0]
+
+    # Should have all 1440 rows
+    assert result.num_rows == 1440
