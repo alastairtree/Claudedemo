@@ -3,6 +3,7 @@
 import click
 
 from data_sync import __version__
+from data_sync.cli_extract import extract
 from data_sync.cli_inspect import inspect
 from data_sync.cli_prepare import prepare
 from data_sync.cli_sync import sync
@@ -24,3 +25,4 @@ def main(ctx: click.Context) -> None:
 main.add_command(sync)
 main.add_command(prepare)
 main.add_command(inspect)
+main.add_command(extract)
