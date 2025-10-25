@@ -11,7 +11,7 @@ from .db_test_utils import table_exists
 
 def test_dry_run_summary_new_table(db_url: str, tmp_path: Path) -> None:
     """Test dry-run summary when table doesn't exist."""
-    from conftest import create_csv_file
+    from tests.test_helpers import create_csv_file
 
     # Create a CSV file
     csv_file = tmp_path / "test.csv"
@@ -53,7 +53,7 @@ def test_dry_run_summary_new_table(db_url: str, tmp_path: Path) -> None:
 
 def test_dry_run_summary_existing_table_no_changes(db_url: str, tmp_path: Path) -> None:
     """Test dry-run when table exists and no schema changes needed."""
-    from conftest import create_csv_file
+    from tests.test_helpers import create_csv_file
 
     # Create a CSV file
     csv_file = tmp_path / "test.csv"

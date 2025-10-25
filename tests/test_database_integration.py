@@ -50,7 +50,7 @@ class TestDatabaseIntegration:
         1. CSV with 3 columns: id, name (renamed to full_name), email (not synced)
         2. Idempotency: running twice doesn't duplicate or change data
         """
-        from conftest import create_config_file, create_csv_file
+        from tests.test_helpers import create_config_file, create_csv_file
 
         # Create CSV file with 3 columns
         csv_file = tmp_path / "users.csv"
@@ -103,7 +103,7 @@ class TestDatabaseIntegration:
 
     def test_sync_all_columns(self, tmp_path: Path, db_url: str) -> None:
         """Test syncing all columns when no specific columns are listed."""
-        from conftest import create_config_file, create_csv_file
+        from tests.test_helpers import create_config_file, create_csv_file
 
         csv_file = tmp_path / "products.csv"
         create_csv_file(
@@ -139,7 +139,7 @@ class TestDatabaseIntegration:
 
     def test_upsert_updates_existing_rows(self, tmp_path: Path, db_url: str) -> None:
         """Test that upserting updates existing rows instead of creating duplicates."""
-        from conftest import create_config_file, create_csv_file
+        from tests.test_helpers import create_config_file, create_csv_file
 
         csv_file = tmp_path / "data.csv"
 
@@ -489,8 +489,8 @@ jobs:
     @pytest.mark.parametrize("db_url", ["sqlite", "postgres"], indirect=True)
     def test_compound_primary_key(self, tmp_path: Path, db_url: str) -> None:
         """Test syncing with compound primary key."""
-        from conftest import create_csv_file
         from data_sync.config import ColumnMapping, SyncJob
+        from tests.test_helpers import create_csv_file
 
         # Create CSV with data
         csv_file = tmp_path / "sales.csv"
@@ -556,8 +556,8 @@ jobs:
     @pytest.mark.parametrize("db_url", ["sqlite", "postgres"], indirect=True)
     def test_single_column_index(self, tmp_path: Path, db_url: str) -> None:
         """Test creating single-column index."""
-        from conftest import create_csv_file
         from data_sync.config import ColumnMapping, Index, IndexColumn, SyncJob
+        from tests.test_helpers import create_csv_file
 
         # Create CSV
         csv_file = tmp_path / "users.csv"
