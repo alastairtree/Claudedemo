@@ -1,6 +1,5 @@
 """Tests for CLI commands."""
 
-import csv
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -45,7 +44,7 @@ class TestSyncCommand:
 
     def test_sync_nonexistent_file(self, cli_runner: CliRunner, tmp_path: Path) -> None:
         """Test sync with nonexistent CSV file fails."""
-        from conftest import create_config_file
+        from tests.test_helpers import create_config_file
 
         config_file = tmp_path / "config.yaml"
         create_config_file(config_file, "test", "test", {"id": "id"})
@@ -87,7 +86,7 @@ class TestSyncCommand:
 
     def test_sync_invalid_job_name(self, cli_runner: CliRunner, tmp_path: Path) -> None:
         """Test sync with invalid job name fails gracefully."""
-        from conftest import create_config_file, create_csv_file
+        from tests.test_helpers import create_config_file, create_csv_file
 
         csv_file = tmp_path / "test.csv"
         create_csv_file(csv_file, ["id", "value"], [{"id": "1", "value": "test"}])
@@ -112,7 +111,7 @@ class TestSyncCommand:
 
     def test_sync_missing_database_url(self, cli_runner: CliRunner, tmp_path: Path) -> None:
         """Test sync without database URL fails."""
-        from conftest import create_config_file
+        from tests.test_helpers import create_config_file
 
         csv_file = tmp_path / "test.csv"
         csv_file.touch()
@@ -254,7 +253,7 @@ class TestDryRunCommand:
 
     def test_sync_dry_run_flag_with_sqlite(self, cli_runner: CliRunner, tmp_path: Path) -> None:
         """Test sync with --dry-run flag using SQLite."""
-        from conftest import create_config_file, create_csv_file
+        from tests.test_helpers import create_config_file, create_csv_file
 
         # Create a simple CSV file
         csv_file = tmp_path / "test.csv"
@@ -298,7 +297,7 @@ class TestDryRunCommand:
 
         # Verify no tables were created (connection may exist for SQLite)
         if db_file.exists():
-            from db_test_utils import execute_query
+            from tests.db_test_utils import execute_query
 
             tables = execute_query(
                 db_url, "SELECT name FROM sqlite_master WHERE type='table'"
@@ -307,7 +306,7 @@ class TestDryRunCommand:
 
     def test_sync_without_dry_run_creates_data(self, cli_runner: CliRunner, tmp_path: Path) -> None:
         """Test that regular sync (without --dry-run) creates data."""
-        from conftest import create_config_file, create_csv_file
+        from tests.test_helpers import create_config_file, create_csv_file
 
         # Create a simple CSV file
         csv_file = tmp_path / "test.csv"
@@ -341,7 +340,7 @@ class TestDryRunCommand:
         # Verify database was created and contains data
         assert db_file.exists()
 
-        from db_test_utils import execute_query
+        from tests.db_test_utils import execute_query
 
         count = execute_query(db_url, "SELECT COUNT(*) FROM test_table")
         assert count[0][0] == 1
