@@ -3,15 +3,8 @@
 from pathlib import Path
 
 import pytest
-from click.testing import CliRunner
 
 from data_sync.cli import main
-
-
-@pytest.fixture
-def cli_runner() -> CliRunner:
-    """Create a Click CLI test runner."""
-    return CliRunner()
 
 
 class TestInspectCommand:
