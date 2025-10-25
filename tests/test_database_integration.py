@@ -103,25 +103,20 @@ class TestDatabaseIntegration:
 
     def test_sync_all_columns(self, tmp_path: Path, db_url: str) -> None:
         """Test syncing all columns when no specific columns are listed."""
+        from conftest import create_config_file, create_csv_file
+
         csv_file = tmp_path / "products.csv"
-        with open(csv_file, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=["product_id", "name", "price", "category"])
-            writer.writeheader()
-            writer.writerow(
-                {"product_id": "P1", "name": "Widget", "price": "9.99", "category": "Tools"}
-            )
-            writer.writerow(
-                {"product_id": "P2", "name": "Gadget", "price": "19.99", "category": "Electronics"}
-            )
+        create_csv_file(
+            csv_file,
+            ["product_id", "name", "price", "category"],
+            [
+                {"product_id": "P1", "name": "Widget", "price": "9.99", "category": "Tools"},
+                {"product_id": "P2", "name": "Gadget", "price": "19.99", "category": "Electronics"},
+            ],
+        )
 
         config_file = tmp_path / "config.yaml"
-        config_file.write_text("""
-jobs:
-  sync_products:
-    target_table: products
-    id_mapping:
-      product_id: id
-""")
+        create_config_file(config_file, "sync_products", "products", {"product_id": "id"})
 
         config = SyncConfig.from_yaml(config_file)
         job = config.get_job("sync_products")
@@ -144,22 +139,15 @@ jobs:
 
     def test_upsert_updates_existing_rows(self, tmp_path: Path, db_url: str) -> None:
         """Test that upserting updates existing rows instead of creating duplicates."""
+        from conftest import create_config_file, create_csv_file
+
         csv_file = tmp_path / "data.csv"
 
         # First version of data
-        with open(csv_file, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=["id", "value"])
-            writer.writeheader()
-            writer.writerow({"id": "1", "value": "original"})
+        create_csv_file(csv_file, ["id", "value"], [{"id": "1", "value": "original"}])
 
         config_file = tmp_path / "config.yaml"
-        config_file.write_text("""
-jobs:
-  test_upsert:
-    target_table: test_data
-    id_mapping:
-      id: id
-""")
+        create_config_file(config_file, "test_upsert", "test_data", {"id": "id"})
 
         config = SyncConfig.from_yaml(config_file)
         job = config.get_job("test_upsert")
@@ -168,10 +156,7 @@ jobs:
         sync_csv_to_postgres(csv_file, job, db_url)
 
         # Update the CSV with new value for same ID
-        with open(csv_file, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=["id", "value"])
-            writer.writeheader()
-            writer.writerow({"id": "1", "value": "updated"})
+        create_csv_file(csv_file, ["id", "value"], [{"id": "1", "value": "updated"}])
 
         # Second sync should update the row
         sync_csv_to_postgres(csv_file, job, db_url)
