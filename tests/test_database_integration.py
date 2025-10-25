@@ -50,26 +50,23 @@ class TestDatabaseIntegration:
         1. CSV with 3 columns: id, name (renamed to full_name), email (not synced)
         2. Idempotency: running twice doesn't duplicate or change data
         """
+        from conftest import create_config_file, create_csv_file
+
         # Create CSV file with 3 columns
         csv_file = tmp_path / "users.csv"
-        with open(csv_file, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=["user_id", "name", "email"])
-            writer.writeheader()
-            writer.writerow({"user_id": "1", "name": "Alice", "email": "alice@example.com"})
-            writer.writerow({"user_id": "2", "name": "Bob", "email": "bob@example.com"})
-            writer.writerow({"user_id": "3", "name": "Charlie", "email": "charlie@example.com"})
+        create_csv_file(
+            csv_file,
+            ["user_id", "name", "email"],
+            [
+                {"user_id": "1", "name": "Alice", "email": "alice@example.com"},
+                {"user_id": "2", "name": "Bob", "email": "bob@example.com"},
+                {"user_id": "3", "name": "Charlie", "email": "charlie@example.com"},
+            ],
+        )
 
         # Create config file
         config_file = tmp_path / "config.yaml"
-        config_file.write_text("""
-jobs:
-  sync_users:
-    target_table: users
-    id_mapping:
-      user_id: id
-    columns:
-      name: full_name
-""")
+        create_config_file(config_file, "sync_users", "users", {"user_id": "id"}, {"name": "full_name"})
 
         # Load config and get job
         config = SyncConfig.from_yaml(config_file)
@@ -507,16 +504,20 @@ jobs:
     @pytest.mark.parametrize("db_url", ["sqlite", "postgres"], indirect=True)
     def test_compound_primary_key(self, tmp_path: Path, db_url: str) -> None:
         """Test syncing with compound primary key."""
+        from conftest import create_csv_file
         from data_sync.config import ColumnMapping, SyncJob
 
         # Create CSV with data
         csv_file = tmp_path / "sales.csv"
-        with open(csv_file, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=["store_id", "product_id", "quantity", "price"])
-            writer.writeheader()
-            writer.writerow({"store_id": "1", "product_id": "A", "quantity": "10", "price": "9.99"})
-            writer.writerow({"store_id": "1", "product_id": "B", "quantity": "5", "price": "19.99"})
-            writer.writerow({"store_id": "2", "product_id": "A", "quantity": "8", "price": "9.99"})
+        create_csv_file(
+            csv_file,
+            ["store_id", "product_id", "quantity", "price"],
+            [
+                {"store_id": "1", "product_id": "A", "quantity": "10", "price": "9.99"},
+                {"store_id": "1", "product_id": "B", "quantity": "5", "price": "19.99"},
+                {"store_id": "2", "product_id": "A", "quantity": "8", "price": "9.99"},
+            ],
+        )
 
         # Create job with compound primary key
         job = SyncJob(
@@ -570,14 +571,16 @@ jobs:
     @pytest.mark.parametrize("db_url", ["sqlite", "postgres"], indirect=True)
     def test_single_column_index(self, tmp_path: Path, db_url: str) -> None:
         """Test creating single-column index."""
+        from conftest import create_csv_file
         from data_sync.config import ColumnMapping, Index, IndexColumn, SyncJob
 
         # Create CSV
         csv_file = tmp_path / "users.csv"
-        with open(csv_file, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=["user_id", "email", "name"])
-            writer.writeheader()
-            writer.writerow({"user_id": "1", "email": "alice@example.com", "name": "Alice"})
+        create_csv_file(
+            csv_file,
+            ["user_id", "email", "name"],
+            [{"user_id": "1", "email": "alice@example.com", "name": "Alice"}],
+        )
 
         # Create job with index
         job = SyncJob(

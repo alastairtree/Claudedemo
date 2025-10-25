@@ -45,14 +45,10 @@ class TestSyncCommand:
 
     def test_sync_nonexistent_file(self, cli_runner: CliRunner, tmp_path: Path) -> None:
         """Test sync with nonexistent CSV file fails."""
+        from conftest import create_config_file
+
         config_file = tmp_path / "config.yaml"
-        config_file.write_text("""
-jobs:
-  test:
-    target_table: test
-    id_mapping:
-      id: id
-""")
+        create_config_file(config_file, "test", "test", {"id": "id"})
 
         nonexistent = tmp_path / "doesnotexist.csv"
 
@@ -91,20 +87,13 @@ jobs:
 
     def test_sync_invalid_job_name(self, cli_runner: CliRunner, tmp_path: Path) -> None:
         """Test sync with invalid job name fails gracefully."""
+        from conftest import create_config_file, create_csv_file
+
         csv_file = tmp_path / "test.csv"
-        with open(csv_file, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=["id", "value"])
-            writer.writeheader()
-            writer.writerow({"id": "1", "value": "test"})
+        create_csv_file(csv_file, ["id", "value"], [{"id": "1", "value": "test"}])
 
         config_file = tmp_path / "config.yaml"
-        config_file.write_text("""
-jobs:
-  real_job:
-    target_table: test
-    id_mapping:
-      id: id
-""")
+        create_config_file(config_file, "real_job", "test", {"id": "id"})
 
         result = cli_runner.invoke(
             main,
@@ -123,17 +112,13 @@ jobs:
 
     def test_sync_missing_database_url(self, cli_runner: CliRunner, tmp_path: Path) -> None:
         """Test sync without database URL fails."""
+        from conftest import create_config_file
+
         csv_file = tmp_path / "test.csv"
         csv_file.touch()
 
         config_file = tmp_path / "config.yaml"
-        config_file.write_text("""
-jobs:
-  test:
-    target_table: test
-    id_mapping:
-      id: id
-""")
+        create_config_file(config_file, "test", "test", {"id": "id"})
 
         result = cli_runner.invoke(main, ["sync", str(csv_file), str(config_file), "test"])
         assert result.exit_code != 0
@@ -269,23 +254,22 @@ class TestDryRunCommand:
 
     def test_sync_dry_run_flag_with_sqlite(self, cli_runner: CliRunner, tmp_path: Path) -> None:
         """Test sync with --dry-run flag using SQLite."""
+        from conftest import create_config_file, create_csv_file
+
         # Create a simple CSV file
         csv_file = tmp_path / "test.csv"
-        with open(csv_file, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=["id", "name", "value"])
-            writer.writeheader()
-            writer.writerow({"id": "1", "name": "Alice", "value": "100"})
-            writer.writerow({"id": "2", "name": "Bob", "value": "200"})
+        create_csv_file(
+            csv_file,
+            ["id", "name", "value"],
+            [
+                {"id": "1", "name": "Alice", "value": "100"},
+                {"id": "2", "name": "Bob", "value": "200"},
+            ],
+        )
 
         # Create a config file
         config_file = tmp_path / "config.yaml"
-        config_file.write_text("""
-jobs:
-  test_job:
-    target_table: test_table
-    id_mapping:
-      id: id
-""")
+        create_config_file(config_file, "test_job", "test_table", {"id": "id"})
 
         # Create an SQLite database URL
         db_file = tmp_path / "test.db"
@@ -314,34 +298,24 @@ jobs:
 
         # Verify no tables were created (connection may exist for SQLite)
         if db_file.exists():
-            import sqlite3
+            from db_test_utils import execute_query
 
-            conn = sqlite3.connect(db_file)
-            cursor = conn.cursor()
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-            tables = cursor.fetchall()
-            cursor.close()
-            conn.close()
+            tables = execute_query(
+                db_url, "SELECT name FROM sqlite_master WHERE type='table'"
+            )
             assert len(tables) == 0, "No tables should have been created during dry-run"
 
     def test_sync_without_dry_run_creates_data(self, cli_runner: CliRunner, tmp_path: Path) -> None:
         """Test that regular sync (without --dry-run) creates data."""
+        from conftest import create_config_file, create_csv_file
+
         # Create a simple CSV file
         csv_file = tmp_path / "test.csv"
-        with open(csv_file, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=["id", "name"])
-            writer.writeheader()
-            writer.writerow({"id": "1", "name": "Alice"})
+        create_csv_file(csv_file, ["id", "name"], [{"id": "1", "name": "Alice"}])
 
         # Create a config file
         config_file = tmp_path / "config.yaml"
-        config_file.write_text("""
-jobs:
-  test_job:
-    target_table: test_table
-    id_mapping:
-      id: id
-""")
+        create_config_file(config_file, "test_job", "test_table", {"id": "id"})
 
         # Create an SQLite database URL
         db_file = tmp_path / "test.db"
@@ -367,12 +341,7 @@ jobs:
         # Verify database was created and contains data
         assert db_file.exists()
 
-        import sqlite3
+        from db_test_utils import execute_query
 
-        conn = sqlite3.connect(db_file)
-        cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM test_table")
-        count = cursor.fetchone()[0]
-        assert count == 1
-        cursor.close()
-        conn.close()
+        count = execute_query(db_url, "SELECT COUNT(*) FROM test_table")
+        assert count[0][0] == 1
