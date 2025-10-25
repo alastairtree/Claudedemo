@@ -1,5 +1,6 @@
 """Prepare command for analyzing CSV files and generating config."""
 
+import re
 from pathlib import Path
 
 import click
@@ -10,6 +11,56 @@ from data_sync.config import ColumnMapping, Index, IndexColumn, SyncConfig, Sync
 from data_sync.type_detection import analyze_csv_types_and_nullable, suggest_id_column
 
 console = Console()
+
+
+def generate_job_name_from_filename(filename: str) -> str:
+    """Generate a job name from a filename.
+
+    Args:
+        filename: The filename to convert (with or without extension)
+
+    Returns:
+        A cleaned job name
+
+    Rules:
+        - Strip file extension
+        - Remove all numbers
+        - Convert multiple underscores to single underscore
+        - Convert multiple hyphens to single hyphen
+        - Strip leading/trailing underscores and hyphens
+        - Convert to lowercase
+
+    Examples:
+        >>> generate_job_name_from_filename("sales_data_2024.csv")
+        'sales_data'
+        >>> generate_job_name_from_filename("user__info__123.csv")
+        'user_info'
+        >>> generate_job_name_from_filename("test--file--456.csv")
+        'test-file'
+    """
+    # Strip extension
+    name = Path(filename).stem
+
+    # Remove all numbers
+    name = re.sub(r"\d+", "", name)
+
+    # Convert multiple underscores to single
+    name = re.sub(r"_+", "_", name)
+
+    # Convert multiple hyphens to single
+    name = re.sub(r"-+", "-", name)
+
+    # Strip leading/trailing underscores and hyphens
+    name = name.strip("_-")
+
+    # Convert to lowercase
+    name = name.lower()
+
+    # If empty after cleaning, use a default
+    if not name:
+        name = "job"
+
+    return name
 
 
 def suggest_indexes(column_info: dict[str, tuple[str, bool]], id_column: str) -> list[Index]:
@@ -145,89 +196,151 @@ def _display_prepare_results(
 
 
 @click.command()
-@click.argument("file_path", type=click.Path(exists=True, path_type=Path), required=True)
-@click.argument("config", type=click.Path(path_type=Path), required=True)
-@click.argument("job", type=str, required=True)
+@click.argument("file_paths", nargs=-1, type=click.Path(exists=True, path_type=Path), required=True)
+@click.option(
+    "--config",
+    "-c",
+    "config",
+    type=click.Path(path_type=Path),
+    required=True,
+    help="Path to the YAML configuration file",
+)
+@click.option(
+    "--job",
+    "-j",
+    "job",
+    type=str,
+    default=None,
+    help="Name of the job to create (auto-generated from filename if not provided)",
+)
 @click.option(
     "--force",
     "-f",
     is_flag=True,
     help="Overwrite job if it already exists in config",
 )
-def prepare(file_path: Path, config: Path, job: str, force: bool) -> None:
-    """Prepare a config entry by analyzing a CSV file.
+def prepare(file_paths: tuple[Path, ...], config: Path, job: str | None, force: bool) -> None:
+    """Prepare config entries by analyzing CSV files.
 
-    Analyzes the CSV file to detect column names and data types, then generates
-    a configuration entry for the specified job. The entry is added to the config
-    file with suggested column mappings and types.
+    Analyzes CSV files to detect column names and data types, then generates
+    configuration entries. Each CSV file creates one job in the config file.
+    If job name is not provided, it will be auto-generated from the filename.
 
     Arguments:
-        FILE_PATH: Path to the CSV file to analyze (required)
-        CONFIG: Path to the YAML configuration file (required)
-        JOB: Name of the job to create in the config file (required)
+        FILE_PATHS: One or more CSV files to analyze (required)
+
+    Options:
+        --config, -c: Path to the YAML configuration file (required)
+        --job, -j: Name of the job to create (optional - auto-generated from filename if not provided)
+        --force, -f: Overwrite job if it already exists in config
 
     Examples:
-        # Create a new job config
-        data-sync prepare data.csv config.yaml my_job
+        # Create job config with auto-generated name
+        data-sync prepare data.csv --config config.yaml
+
+        # Create job config with custom name
+        data-sync prepare data.csv --config config.yaml --job my_job
+
+        # Process multiple CSV files (auto-generates job names)
+        data-sync prepare file1.csv file2.csv file3.csv --config config.yaml
+
+        # Process multiple CSV files with glob pattern
+        data-sync prepare data/*.csv -c config.yaml
 
         # Overwrite existing job config
-        data-sync prepare data.csv config.yaml my_job --force
+        data-sync prepare data.csv -c config.yaml -j my_job --force
     """
     try:
-        console.print(f"[cyan]Analyzing {file_path.name}...[/cyan]")
-
-        # Analyze CSV file to detect types and nullable status
-        column_info = analyze_csv_types_and_nullable(file_path)
-
-        if not column_info:
-            console.print("[red]Error:[/red] No columns found in CSV file")
+        # Validate: if job name provided, only one file allowed
+        if job and len(file_paths) > 1:
+            console.print(
+                "[red]Error:[/red] Cannot specify job name when processing multiple files. "
+                "Job names will be auto-generated from filenames."
+            )
             raise click.Abort()
 
-        columns = list(column_info.keys())
-        console.print(f"[dim]  Found {len(columns)} columns[/dim]")
-
-        # Load or create config (need this early to get id_column_matchers)
+        # Load or create config once (used for all files)
         sync_config = SyncConfig.from_yaml(config) if config.exists() else SyncConfig(jobs={})
 
-        # Suggest ID column using matchers from config if available
-        id_column = suggest_id_column(columns, sync_config.id_column_matchers)
-        console.print(f"[dim]  Suggested ID column: {id_column}[/dim]")
+        jobs_created = 0
+        jobs_updated = 0
 
-        # Create column mappings and suggest indexes
-        column_mappings = _create_column_mappings(columns, id_column, column_info)
-        suggested_indexes = suggest_indexes(column_info, id_column)
-        console.print(f"[dim]  Suggested {len(suggested_indexes)} index(es)[/dim]")
+        # Process each file
+        for file_path in file_paths:
+            # Determine job name
+            job_name = job or generate_job_name_from_filename(file_path.name)
 
-        # Create the job with ID mapping that includes nullable info
-        id_type, id_nullable = column_info[id_column]
-        new_job = SyncJob(
-            name=job,
-            target_table=job,  # Use job name as table name
-            id_mapping=[
-                ColumnMapping(
-                    csv_column=id_column,
-                    db_column="id",
-                    data_type=id_type,
-                    nullable=id_nullable,
-                )
-            ],
-            columns=column_mappings if column_mappings else None,
-            indexes=suggested_indexes if suggested_indexes else None,
-        )
+            console.print(f"\n[cyan]Analyzing {file_path.name}...[/cyan]")
+            console.print(f"[dim]  Job name: {job_name}[/dim]")
 
-        # Add or update job
-        try:
-            sync_config.add_or_update_job(new_job, force=force)
-        except ValueError as e:
-            console.print(f"[red]Error:[/red] {e}")
-            console.print("[dim]Use --force to overwrite the existing job[/dim]")
-            raise click.Abort() from e
+            # Analyze CSV file to detect types and nullable status
+            column_info = analyze_csv_types_and_nullable(file_path)
 
-        # Save config and display results
-        sync_config.save_to_yaml(config)
-        _display_prepare_results(
-            new_job, config, id_column, column_info, column_mappings, suggested_indexes
-        )
+            if not column_info:
+                console.print("[red]Error:[/red] No columns found in CSV file")
+                continue
+
+            columns = list(column_info.keys())
+            console.print(f"[dim]  Found {len(columns)} columns[/dim]")
+
+            # Suggest ID column using matchers from config if available
+            id_column = suggest_id_column(columns, sync_config.id_column_matchers)
+            console.print(f"[dim]  Suggested ID column: {id_column}[/dim]")
+
+            # Create column mappings and suggest indexes
+            column_mappings = _create_column_mappings(columns, id_column, column_info)
+            suggested_indexes = suggest_indexes(column_info, id_column)
+            console.print(f"[dim]  Suggested {len(suggested_indexes)} index(es)[/dim]")
+
+            # Create the job with ID mapping that includes nullable info
+            id_type, id_nullable = column_info[id_column]
+            new_job = SyncJob(
+                name=job_name,
+                target_table=job_name,  # Use job name as table name
+                id_mapping=[
+                    ColumnMapping(
+                        csv_column=id_column,
+                        db_column="id",
+                        data_type=id_type,
+                        nullable=id_nullable,
+                    )
+                ],
+                columns=column_mappings if column_mappings else None,
+                indexes=suggested_indexes if suggested_indexes else None,
+            )
+
+            # Add or update job
+            try:
+                job_exists = job_name in sync_config.jobs
+                sync_config.add_or_update_job(new_job, force=force)
+
+                if job_exists:
+                    jobs_updated += 1
+                else:
+                    jobs_created += 1
+
+            except ValueError as e:
+                console.print(f"[red]Error:[/red] {e}")
+                console.print("[dim]Use --force to overwrite the existing job[/dim]")
+                if len(file_paths) == 1:
+                    raise click.Abort() from e
+                continue
+
+            # Display results for this file
+            _display_prepare_results(
+                new_job, config, id_column, column_info, column_mappings, suggested_indexes
+            )
+
+        # Save config once after processing all files
+        if jobs_created > 0 or jobs_updated > 0:
+            sync_config.save_to_yaml(config)
+            console.print(f"\n[green]✓ Configuration saved to {config}[/green]")
+            if jobs_created > 0:
+                console.print(f"[dim]  Jobs created: {jobs_created}[/dim]")
+            if jobs_updated > 0:
+                console.print(f"[dim]  Jobs updated: {jobs_updated}[/dim]")
+        else:
+            console.print("\n[yellow]No jobs were created or updated[/yellow]")
 
     except FileNotFoundError as e:
         console.print(f"[red]Error:[/red] {e}")
