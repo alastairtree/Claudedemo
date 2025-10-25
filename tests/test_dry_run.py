@@ -11,14 +11,19 @@ from .db_test_utils import table_exists
 
 def test_dry_run_summary_new_table(db_url: str, tmp_path: Path) -> None:
     """Test dry-run summary when table doesn't exist."""
+    from conftest import create_csv_file
+
     # Create a CSV file
     csv_file = tmp_path / "test.csv"
-    with open(csv_file, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["user_id", "name", "email"])
-        writer.writeheader()
-        writer.writerow({"user_id": "1", "name": "Alice", "email": "alice@example.com"})
-        writer.writerow({"user_id": "2", "name": "Bob", "email": "bob@example.com"})
-        writer.writerow({"user_id": "3", "name": "Charlie", "email": "charlie@example.com"})
+    create_csv_file(
+        csv_file,
+        ["user_id", "name", "email"],
+        [
+            {"user_id": "1", "name": "Alice", "email": "alice@example.com"},
+            {"user_id": "2", "name": "Bob", "email": "bob@example.com"},
+            {"user_id": "3", "name": "Charlie", "email": "charlie@example.com"},
+        ],
+    )
 
     # Create a sync job configuration
     job = SyncJob(
@@ -48,13 +53,18 @@ def test_dry_run_summary_new_table(db_url: str, tmp_path: Path) -> None:
 
 def test_dry_run_summary_existing_table_no_changes(db_url: str, tmp_path: Path) -> None:
     """Test dry-run when table exists and no schema changes needed."""
+    from conftest import create_csv_file
+
     # Create a CSV file
     csv_file = tmp_path / "test.csv"
-    with open(csv_file, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["product_id", "name", "price"])
-        writer.writeheader()
-        writer.writerow({"product_id": "1", "name": "Widget", "price": "19.99"})
-        writer.writerow({"product_id": "2", "name": "Gadget", "price": "29.99"})
+    create_csv_file(
+        csv_file,
+        ["product_id", "name", "price"],
+        [
+            {"product_id": "1", "name": "Widget", "price": "19.99"},
+            {"product_id": "2", "name": "Gadget", "price": "29.99"},
+        ],
+    )
 
     # First, create the table with actual data
     job = SyncJob(
