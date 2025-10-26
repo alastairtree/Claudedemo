@@ -33,42 +33,6 @@ class ColumnMapping:
         self.nullable = nullable
 
 
-class DateMapping:
-    """Configuration for extracting date from filename."""
-
-    def __init__(self, filename_regex: str, db_column: str) -> None:
-        """Initialize date mapping.
-
-        Args:
-            filename_regex: Regex pattern to extract date from filename
-            db_column: Database column to store the extracted date
-        """
-        self.filename_regex = filename_regex
-        self.db_column = db_column
-
-    def extract_date_from_filename(self, filename: str | Path) -> str | None:
-        r"""Extract date from filename using the configured regex.
-
-        Args:
-            filename: The filename (or path) to extract date from
-
-        Returns:
-            Extracted date string if found, None otherwise
-
-        Example:
-            >>> mapping = DateMapping(r'(\d{4}-\d{2}-\d{2})', 'sync_date')
-            >>> mapping.extract_date_from_filename('data_2024-01-15.csv')
-            '2024-01-15'
-        """
-        if isinstance(filename, Path):
-            filename = filename.name
-
-        match = re.search(self.filename_regex, filename)
-        if match:
-            return match.group(1)
-        return None
-
-
 class FilenameColumnMapping:
     """Mapping for a single column extracted from filename."""
 
@@ -227,7 +191,6 @@ class SyncJob:
         target_table: str,
         id_mapping: list[ColumnMapping],
         columns: list[ColumnMapping] | None = None,
-        date_mapping: DateMapping | None = None,
         filename_to_column: FilenameToColumn | None = None,
         indexes: list[Index] | None = None,
     ) -> None:
@@ -238,7 +201,6 @@ class SyncJob:
             target_table: Target database table name
             id_mapping: List of mappings for ID columns (supports compound primary keys)
             columns: List of column mappings to sync (all columns if None)
-            date_mapping: Optional date extraction and storage configuration (deprecated, use filename_to_column)
             filename_to_column: Optional filename-to-column extraction configuration
             indexes: Optional list of database indexes to create
         """
@@ -246,7 +208,6 @@ class SyncJob:
         self.target_table = target_table
         self.id_mapping = id_mapping
         self.columns = columns or []
-        self.date_mapping = date_mapping
         self.filename_to_column = filename_to_column
         self.indexes = indexes or []
 
@@ -314,10 +275,7 @@ class SyncConfig:
                   salary:
                     db_column: monthly_salary
                     type: float
-                date_mapping:  # DEPRECATED - use filename_to_column instead
-                  filename_regex: '(\d{4}-\d{2}-\d{2})'
-                  db_column: sync_date
-                filename_to_column:  # New flexible filename extraction
+                filename_to_column:  # Optional: extract values from filename
                   template: "[mission]level2[sensor]_[date]_v[version].cdf"
                   # OR use regex with named groups:
                   # regex: "(?P<mission>[a-z]+)_level2_(?P<sensor>[a-z]+)_(?P<date>\\d{8})_v(?P<version>\\d+)\\.cdf"
@@ -331,7 +289,7 @@ class SyncConfig:
                     date:
                       db_column: observation_date
                       type: date
-                      use_to_delete_old_rows: true
+                      use_to_delete_old_rows: true  # Use this column to identify stale rows
                     version:
                       db_column: file_version
                       type: varchar(10)
@@ -340,11 +298,9 @@ class SyncConfig:
                     columns:
                       - column: email
                         order: ASC
-                  - name: idx_name_date
+                  - name: idx_observation_date
                     columns:
-                      - column: name
-                        order: ASC
-                      - column: sync_date
+                      - column: observation_date
                         order: DESC
         """
         if not config_path.exists():
@@ -449,24 +405,6 @@ class SyncConfig:
             for csv_col, value in col_data.items():
                 columns.append(SyncConfig._parse_column_mapping(csv_col, value, name))
 
-        # Parse optional date_mapping
-        date_mapping = None
-        if "date_mapping" in job_data and job_data["date_mapping"]:
-            date_data = job_data["date_mapping"]
-            if not isinstance(date_data, dict):
-                raise ValueError(f"Job '{name}' date_mapping must be a dictionary")
-
-            if "filename_regex" not in date_data:
-                raise ValueError(f"Job '{name}' date_mapping missing 'filename_regex'")
-
-            if "db_column" not in date_data:
-                raise ValueError(f"Job '{name}' date_mapping missing 'db_column'")
-
-            date_mapping = DateMapping(
-                filename_regex=date_data["filename_regex"],
-                db_column=date_data["db_column"],
-            )
-
         # Parse optional filename_to_column
         filename_to_column = None
         if "filename_to_column" in job_data and job_data["filename_to_column"]:
@@ -559,7 +497,6 @@ class SyncConfig:
             target_table=job_data["target_table"],
             id_mapping=id_mapping,
             columns=columns if columns else None,
-            date_mapping=date_mapping,
             filename_to_column=filename_to_column,
             indexes=indexes if indexes else None,
         )
@@ -624,13 +561,6 @@ class SyncConfig:
                     else:
                         columns_dict[col.csv_column] = col.db_column
                 job_dict["columns"] = columns_dict
-
-            # Add date_mapping if present
-            if job.date_mapping:
-                job_dict["date_mapping"] = {
-                    "filename_regex": job.date_mapping.filename_regex,
-                    "db_column": job.date_mapping.db_column,
-                }
 
             # Add filename_to_column if present
             if job.filename_to_column:
