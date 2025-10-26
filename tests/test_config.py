@@ -573,3 +573,228 @@ jobs:
 
         with pytest.raises(ValueError, match="Index must have at least one column"):
             Index("idx_test", [])
+
+
+class TestFilenameToColumn:
+    """Test suite for FilenameToColumn functionality."""
+
+    def test_template_to_regex_conversion(self) -> None:
+        """Test converting template string to regex pattern."""
+        from data_sync.config import FilenameColumnMapping, FilenameToColumn
+
+        columns = {
+            "mission": FilenameColumnMapping("mission", "mission_name"),
+            "date": FilenameColumnMapping("date", "obs_date", "date"),
+        }
+        ftc = FilenameToColumn(columns=columns, template="[mission]_data_[date].csv")
+
+        # Test extracting values with template
+        values = ftc.extract_values_from_filename("imap_data_20240115.csv")
+        assert values is not None
+        assert values["mission"] == "imap"
+        assert values["date"] == "20240115"
+
+    def test_regex_extraction(self) -> None:
+        """Test extracting values using regex with named groups."""
+        from data_sync.config import FilenameColumnMapping, FilenameToColumn
+
+        columns = {
+            "mission": FilenameColumnMapping("mission", "mission_name", "varchar(10)"),
+            "sensor": FilenameColumnMapping("sensor", "sensor_type", "varchar(20)"),
+            "date": FilenameColumnMapping("date", "obs_date", "date", use_to_delete_old_rows=True),
+        }
+        ftc = FilenameToColumn(
+            columns=columns,
+            regex=r"(?P<mission>[a-z]+)_level2_(?P<sensor>[a-z]+)_(?P<date>\d{8})\.cdf",
+        )
+
+        values = ftc.extract_values_from_filename("imap_level2_primary_20240115.cdf")
+        assert values is not None
+        assert values["mission"] == "imap"
+        assert values["sensor"] == "primary"
+        assert values["date"] == "20240115"
+
+    def test_get_delete_key_columns(self) -> None:
+        """Test getting columns marked for stale row deletion."""
+        from data_sync.config import FilenameColumnMapping, FilenameToColumn
+
+        columns = {
+            "mission": FilenameColumnMapping("mission", "mission_name"),
+            "date": FilenameColumnMapping("date", "obs_date", "date", use_to_delete_old_rows=True),
+            "version": FilenameColumnMapping(
+                "version", "file_version", "varchar(10)", use_to_delete_old_rows=True
+            ),
+        }
+        ftc = FilenameToColumn(columns=columns, template="[mission]_[date]_v[version].csv")
+
+        delete_columns = ftc.get_delete_key_columns()
+        assert len(delete_columns) == 2
+        assert "obs_date" in delete_columns
+        assert "file_version" in delete_columns
+
+    def test_both_template_and_regex_error(self) -> None:
+        """Test that specifying both template and regex raises error."""
+        from data_sync.config import FilenameColumnMapping, FilenameToColumn
+
+        columns = {"date": FilenameColumnMapping("date", "file_date")}
+
+        with pytest.raises(ValueError, match="exactly one of 'template' or 'regex'"):
+            FilenameToColumn(columns=columns, template="[date].csv", regex=r"(?P<date>\d{8})")
+
+    def test_neither_template_nor_regex_error(self) -> None:
+        """Test that specifying neither template nor regex raises error."""
+        from data_sync.config import FilenameColumnMapping, FilenameToColumn
+
+        columns = {"date": FilenameColumnMapping("date", "file_date")}
+
+        with pytest.raises(ValueError, match="exactly one of 'template' or 'regex'"):
+            FilenameToColumn(columns=columns)
+
+    def test_config_with_filename_to_column_template(self, tmp_path: Path) -> None:
+        """Test loading config with filename_to_column using template."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: observations
+    id_mapping:
+      obs_id: id
+    columns:
+      value: measurement
+    filename_to_column:
+      template: "[mission]_level2_[sensor]_[date]_v[version].cdf"
+      columns:
+        mission:
+          db_column: mission_name
+          type: varchar(10)
+        sensor:
+          db_column: sensor_type
+          type: varchar(20)
+        date:
+          db_column: observation_date
+          type: date
+          use_to_delete_old_rows: true
+        version:
+          db_column: file_version
+          type: varchar(10)
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_job")
+        assert job is not None
+        assert job.filename_to_column is not None
+        assert job.filename_to_column.template == "[mission]_level2_[sensor]_[date]_v[version].cdf"
+        assert job.filename_to_column.regex is None
+        assert len(job.filename_to_column.columns) == 4
+
+        # Check date column has use_to_delete_old_rows flag
+        date_col = job.filename_to_column.columns["date"]
+        assert date_col.use_to_delete_old_rows is True
+        assert date_col.db_column == "observation_date"
+        assert date_col.data_type == "date"
+
+    def test_config_with_filename_to_column_regex(self, tmp_path: Path) -> None:
+        """Test loading config with filename_to_column using regex."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(r"""
+jobs:
+  test_job:
+    target_table: data
+    id_mapping:
+      record_id: id
+    filename_to_column:
+      regex: "(?P<prefix>[a-z]+)_(?P<date>\\d{8})\\.csv"
+      columns:
+        prefix:
+          db_column: data_prefix
+          type: varchar(20)
+        date:
+          db_column: file_date
+          type: date
+          use_to_delete_old_rows: true
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_job")
+        assert job is not None
+        assert job.filename_to_column is not None
+        assert job.filename_to_column.regex == r"(?P<prefix>[a-z]+)_(?P<date>\d{8})\.csv"
+        assert job.filename_to_column.template is None
+
+    def test_config_with_both_template_and_regex_error(self, tmp_path: Path) -> None:
+        """Test that config with both template and regex raises error."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(r"""
+jobs:
+  test_job:
+    target_table: data
+    id_mapping:
+      id: id
+    filename_to_column:
+      template: "[date].csv"
+      regex: "(?P<date>\\d{8})\\.csv"
+      columns:
+        date:
+          db_column: file_date
+""")
+
+        with pytest.raises(ValueError, match="cannot have both 'template' and 'regex'"):
+            SyncConfig.from_yaml(config_file)
+
+    def test_config_with_neither_template_nor_regex_error(self, tmp_path: Path) -> None:
+        """Test that config without template or regex raises error."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: data
+    id_mapping:
+      id: id
+    filename_to_column:
+      columns:
+        date:
+          db_column: file_date
+""")
+
+        with pytest.raises(
+            ValueError, match="filename_to_column must have either 'template' or 'regex'"
+        ):
+            SyncConfig.from_yaml(config_file)
+
+    def test_save_config_with_filename_to_column(self, tmp_path: Path) -> None:
+        """Test saving config with filename_to_column."""
+        from data_sync.config import (
+            ColumnMapping,
+            FilenameColumnMapping,
+            FilenameToColumn,
+            SyncJob,
+        )
+
+        ftc_columns = {
+            "mission": FilenameColumnMapping("mission", "mission_name", "varchar(10)"),
+            "date": FilenameColumnMapping("date", "obs_date", "date", use_to_delete_old_rows=True),
+        }
+        ftc = FilenameToColumn(columns=ftc_columns, template="[mission]_[date].csv")
+
+        job = SyncJob(
+            name="test_job",
+            target_table="observations",
+            id_mapping=[ColumnMapping("obs_id", "id")],
+            columns=[ColumnMapping("value", "measurement")],
+            filename_to_column=ftc,
+        )
+
+        config = SyncConfig(jobs={"test_job": job})
+        config_file = tmp_path / "config.yaml"
+        config.save_to_yaml(config_file)
+
+        # Reload and verify
+        loaded_config = SyncConfig.from_yaml(config_file)
+        loaded_job = loaded_config.get_job("test_job")
+        assert loaded_job is not None
+        assert loaded_job.filename_to_column is not None
+        assert loaded_job.filename_to_column.template == "[mission]_[date].csv"
+        assert len(loaded_job.filename_to_column.columns) == 2
+
+        date_col = loaded_job.filename_to_column.columns["date"]
+        assert date_col.use_to_delete_old_rows is True

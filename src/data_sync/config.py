@@ -69,6 +69,117 @@ class DateMapping:
         return None
 
 
+class FilenameColumnMapping:
+    """Mapping for a single column extracted from filename."""
+
+    def __init__(
+        self,
+        name: str,
+        db_column: str | None = None,
+        data_type: str | None = None,
+        use_to_delete_old_rows: bool = False,
+    ) -> None:
+        """Initialize filename column mapping.
+
+        Args:
+            name: Name of the extracted value (from template/regex)
+            db_column: Database column name (defaults to name if not specified)
+            data_type: Data type (varchar(N), integer, float, date, datetime, text)
+            use_to_delete_old_rows: If True, this column is used to identify stale rows
+        """
+        self.name = name
+        self.db_column = db_column or name
+        self.data_type = data_type
+        self.use_to_delete_old_rows = use_to_delete_old_rows
+
+
+class FilenameToColumn:
+    """Configuration for extracting multiple values from filename."""
+
+    def __init__(
+        self,
+        columns: dict[str, FilenameColumnMapping],
+        template: str | None = None,
+        regex: str | None = None,
+    ) -> None:
+        """Initialize filename to column mapping.
+
+        Args:
+            columns: Dictionary of column name to FilenameColumnMapping
+            template: Filename template with [column_name] syntax (mutually exclusive with regex)
+            regex: Regex pattern with named groups (mutually exclusive with template)
+
+        Raises:
+            ValueError: If both template and regex are specified, or neither is specified
+        """
+        if (template is None) == (regex is None):
+            raise ValueError("Must specify exactly one of 'template' or 'regex'")
+
+        self.columns = columns
+        self.template = template
+        self.regex = regex
+
+        # Pre-compile regex
+        if template:
+            self._compiled_regex = self._template_to_regex(template)
+        else:
+            self._compiled_regex = re.compile(regex)
+
+    def _template_to_regex(self, template: str) -> re.Pattern:
+        """Convert template string to regex pattern.
+
+        Args:
+            template: Template string with [column_name] placeholders
+
+        Returns:
+            Compiled regex pattern with named groups
+
+        Example:
+            >>> mapping = FilenameToColumn(...)
+            >>> # Template: "[mission]level2[sensor]_[date].cdf"
+            >>> # becomes: "(?P<mission>.+?)level2(?P<sensor>.+?)_(?P<date>.+?)\.cdf"
+        """
+        # Escape special regex characters
+        escaped = re.escape(template)
+        # Replace \[column_name\] with named groups using non-greedy matching
+        pattern = re.sub(r"\\\[(\w+)\\\]", r"(?P<\1>.+?)", escaped)
+        return re.compile(pattern)
+
+    def extract_values_from_filename(self, filename: str | Path) -> dict[str, str] | None:
+        """Extract values from filename using template or regex.
+
+        Args:
+            filename: The filename (or path) to extract values from
+
+        Returns:
+            Dictionary of column name to extracted value, or None if no match
+
+        Example:
+            >>> mapping = FilenameToColumn(
+            ...     columns={...},
+            ...     template="[mission]level2[sensor]_[date]_v[version].cdf"
+            ... )
+            >>> mapping.extract_values_from_filename("imap_level2_primary_20000102_v002.cdf")
+            {'mission': 'imap', 'sensor': 'primary', 'date': '20000102', 'version': '002'}
+        """
+        if isinstance(filename, Path):
+            filename = filename.name
+
+        match = self._compiled_regex.search(filename)
+        if not match:
+            return None
+
+        return match.groupdict()
+
+    def get_delete_key_columns(self) -> list[str]:
+        """Get list of database column names used for stale row deletion.
+
+        Returns:
+            List of db_column names where use_to_delete_old_rows is True
+        """
+        return [col.db_column for col in self.columns.values() if col.use_to_delete_old_rows]
+
+
 class IndexColumn:
     """Column definition for a database index."""
 
@@ -117,6 +228,7 @@ class SyncJob:
         id_mapping: list[ColumnMapping],
         columns: list[ColumnMapping] | None = None,
         date_mapping: DateMapping | None = None,
+        filename_to_column: FilenameToColumn | None = None,
         indexes: list[Index] | None = None,
     ) -> None:
         """Initialize a sync job.
@@ -126,7 +238,8 @@ class SyncJob:
             target_table: Target database table name
             id_mapping: List of mappings for ID columns (supports compound primary keys)
             columns: List of column mappings to sync (all columns if None)
-            date_mapping: Optional date extraction and storage configuration
+            date_mapping: Optional date extraction and storage configuration (deprecated, use filename_to_column)
+            filename_to_column: Optional filename-to-column extraction configuration
             indexes: Optional list of database indexes to create
         """
         self.name = name
@@ -134,6 +247,7 @@ class SyncJob:
         self.id_mapping = id_mapping
         self.columns = columns or []
         self.date_mapping = date_mapping
+        self.filename_to_column = filename_to_column
         self.indexes = indexes or []
 
 
@@ -200,9 +314,27 @@ class SyncConfig:
                   salary:
                     db_column: monthly_salary
                     type: float
-                date_mapping:
+                date_mapping:  # DEPRECATED - use filename_to_column instead
                   filename_regex: '(\d{4}-\d{2}-\d{2})'
                   db_column: sync_date
+                filename_to_column:  # New flexible filename extraction
+                  template: "[mission]level2[sensor]_[date]_v[version].cdf"
+                  # OR use regex with named groups:
+                  # regex: "(?P<mission>[a-z]+)_level2_(?P<sensor>[a-z]+)_(?P<date>\\d{8})_v(?P<version>\\d+)\\.cdf"
+                  columns:
+                    mission:
+                      db_column: mission_name
+                      type: varchar(10)
+                    sensor:
+                      db_column: sensor_type
+                      type: varchar(20)
+                    date:
+                      db_column: observation_date
+                      type: date
+                      use_to_delete_old_rows: true
+                    version:
+                      db_column: file_version
+                      type: varchar(10)
                 indexes:  # Optional
                   - name: idx_email
                     columns:
@@ -335,6 +467,63 @@ class SyncConfig:
                 db_column=date_data["db_column"],
             )
 
+        # Parse optional filename_to_column
+        filename_to_column = None
+        if "filename_to_column" in job_data and job_data["filename_to_column"]:
+            ftc_data = job_data["filename_to_column"]
+            if not isinstance(ftc_data, dict):
+                raise ValueError(f"Job '{name}' filename_to_column must be a dictionary")
+
+            # Check that exactly one of template or regex is specified
+            has_template = "template" in ftc_data and ftc_data["template"]
+            has_regex = "regex" in ftc_data and ftc_data["regex"]
+
+            if not has_template and not has_regex:
+                raise ValueError(
+                    f"Job '{name}' filename_to_column must have either 'template' or 'regex'"
+                )
+
+            if has_template and has_regex:
+                raise ValueError(
+                    f"Job '{name}' filename_to_column cannot have both 'template' and 'regex'"
+                )
+
+            # Parse columns
+            if "columns" not in ftc_data or not ftc_data["columns"]:
+                raise ValueError(f"Job '{name}' filename_to_column must have 'columns'")
+
+            if not isinstance(ftc_data["columns"], dict):
+                raise ValueError(f"Job '{name}' filename_to_column columns must be a dictionary")
+
+            ftc_columns = {}
+            for col_name, col_data in ftc_data["columns"].items():
+                if isinstance(col_data, dict):
+                    db_column = col_data.get("db_column")
+                    data_type = col_data.get("type")
+                    use_to_delete_old_rows = col_data.get("use_to_delete_old_rows", False)
+                elif col_data is None:
+                    # Simple format: column_name: null (use defaults)
+                    db_column = None
+                    data_type = None
+                    use_to_delete_old_rows = False
+                else:
+                    raise ValueError(
+                        f"Job '{name}' filename_to_column column '{col_name}' must be a dictionary or null"
+                    )
+
+                ftc_columns[col_name] = FilenameColumnMapping(
+                    name=col_name,
+                    db_column=db_column,
+                    data_type=data_type,
+                    use_to_delete_old_rows=use_to_delete_old_rows,
+                )
+
+            filename_to_column = FilenameToColumn(
+                columns=ftc_columns,
+                template=ftc_data.get("template"),
+                regex=ftc_data.get("regex"),
+            )
+
         # Parse optional indexes
         indexes = []
         if "indexes" in job_data and job_data["indexes"]:
@@ -371,6 +560,7 @@ class SyncConfig:
             id_mapping=id_mapping,
             columns=columns if columns else None,
             date_mapping=date_mapping,
+            filename_to_column=filename_to_column,
             indexes=indexes if indexes else None,
         )
 
@@ -441,6 +631,30 @@ class SyncConfig:
                     "filename_regex": job.date_mapping.filename_regex,
                     "db_column": job.date_mapping.db_column,
                 }
+
+            # Add filename_to_column if present
+            if job.filename_to_column:
+                ftc_dict: dict[str, Any] = {}
+                if job.filename_to_column.template:
+                    ftc_dict["template"] = job.filename_to_column.template
+                else:
+                    ftc_dict["regex"] = job.filename_to_column.regex
+
+                columns_dict = {}
+                for col_name, col in job.filename_to_column.columns.items():
+                    col_dict: dict[str, Any] = {}
+                    if col.db_column != col.name:
+                        col_dict["db_column"] = col.db_column
+                    if col.data_type:
+                        col_dict["type"] = col.data_type
+                    if col.use_to_delete_old_rows:
+                        col_dict["use_to_delete_old_rows"] = True
+
+                    # If col_dict is empty, use None to keep it minimal
+                    columns_dict[col_name] = col_dict if col_dict else None
+
+                ftc_dict["columns"] = columns_dict
+                job_dict["filename_to_column"] = ftc_dict
 
             # Add indexes if present
             if job.indexes:

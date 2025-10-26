@@ -7,7 +7,15 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from data_sync.config import ColumnMapping, Index, IndexColumn, SyncConfig, SyncJob
+from data_sync.config import (
+    ColumnMapping,
+    FilenameColumnMapping,
+    FilenameToColumn,
+    Index,
+    IndexColumn,
+    SyncConfig,
+    SyncJob,
+)
 from data_sync.type_detection import analyze_csv_types_and_nullable, suggest_id_column
 
 console = Console()
@@ -105,6 +113,63 @@ def suggest_indexes(column_info: dict[str, tuple[str, bool]], id_column: str) ->
             )
 
     return indexes
+
+
+def detect_filename_patterns(filename: str) -> FilenameToColumn | None:
+    """Detect common date patterns in filename and suggest filename_to_column mapping.
+
+    Args:
+        filename: The filename to analyze (with or without extension)
+
+    Returns:
+        FilenameToColumn object if patterns detected, None otherwise
+
+    Detects patterns like:
+        - YYYYMMDD (20241231)
+        - YYYY-MM-DD (2024-12-31)
+        - YYYY_MM_DD (2024_12_31)
+
+    Examples:
+        >>> detect_filename_patterns("data_20241231.csv")
+        FilenameToColumn with date column
+        >>> detect_filename_patterns("report_2024-12-31_v1.csv")
+        FilenameToColumn with date and version columns
+    """
+    # Strip extension
+    name = Path(filename).stem
+
+    # Define date patterns to detect
+    date_patterns = [
+        # YYYYMMDD pattern
+        (r"(\d{8})", "date", r"(\d{8})", "YYYYMMDD", "date"),
+        # YYYY-MM-DD pattern
+        (r"(\d{4}-\d{2}-\d{2})", "date", r"(\d{4}-\d{2}-\d{2})", "YYYY-MM-DD", "date"),
+        # YYYY_MM_DD pattern
+        (r"(\d{4}_\d{2}_\d{2})", "date", r"(\d{4}_\d{2}_\d{2})", "YYYY_MM_DD", "date"),
+    ]
+
+    # Try to find a date pattern
+    for pattern, col_name, regex_pattern, pattern_desc, col_type in date_patterns:
+        match = re.search(pattern, name)
+        if match:
+            # Build a template from the filename
+            # Replace the matched pattern with [date] placeholder
+            template = name[: match.start()] + "[date]" + name[match.end() :]
+            template += Path(filename).suffix  # Add extension back
+
+            # Create the FilenameToColumn mapping
+            columns = {
+                "date": FilenameColumnMapping(
+                    name="date",
+                    db_column="file_date",
+                    data_type="date",
+                    use_to_delete_old_rows=True,
+                )
+            }
+
+            return FilenameToColumn(columns=columns, template=template)
+
+    return None
 
 
 def _create_column_mappings(
@@ -292,6 +357,12 @@ def prepare(file_paths: tuple[Path, ...], config: Path, job: str | None, force: 
             suggested_indexes = suggest_indexes(column_info, id_column)
             console.print(f"[dim]  Suggested {len(suggested_indexes)} index(es)[/dim]")
 
+            # Detect filename patterns and suggest filename_to_column mapping
+            filename_to_column = detect_filename_patterns(file_path.name)
+            if filename_to_column:
+                console.print("[dim]  Detected date pattern in filename[/dim]")
+                console.print(f"[dim]    Template: {filename_to_column.template}[/dim]")
+
             # Create the job with ID mapping that includes nullable info
             id_type, id_nullable = column_info[id_column]
             new_job = SyncJob(
@@ -306,6 +377,7 @@ def prepare(file_paths: tuple[Path, ...], config: Path, job: str | None, force: 
                     )
                 ],
                 columns=column_mappings if column_mappings else None,
+                filename_to_column=filename_to_column,
                 indexes=suggested_indexes if suggested_indexes else None,
             )
 
