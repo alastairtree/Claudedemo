@@ -66,7 +66,9 @@ class TestDatabaseIntegration:
 
         # Create config file
         config_file = tmp_path / "config.yaml"
-        create_config_file(config_file, "sync_users", "users", {"user_id": "id"}, {"name": "full_name"})
+        create_config_file(
+            config_file, "sync_users", "users", {"user_id": "id"}, {"name": "full_name"}
+        )
 
         # Load config and get job
         config = SyncConfig.from_yaml(config_file)

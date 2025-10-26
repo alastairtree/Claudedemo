@@ -299,9 +299,7 @@ class TestDryRunCommand:
         if db_file.exists():
             from tests.db_test_utils import execute_query
 
-            tables = execute_query(
-                db_url, "SELECT name FROM sqlite_master WHERE type='table'"
-            )
+            tables = execute_query(db_url, "SELECT name FROM sqlite_master WHERE type='table'")
             assert len(tables) == 0, "No tables should have been created during dry-run"
 
     def test_sync_without_dry_run_creates_data(self, cli_runner: CliRunner, tmp_path: Path) -> None:
