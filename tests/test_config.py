@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from data_sync.config import DateMapping, SyncConfig
+from data_sync.config import SyncConfig
 
 
 class TestConfigParsing:
@@ -107,100 +107,6 @@ jobs:
         config = SyncConfig.from_yaml(config_file)
         job = config.get_job("nonexistent")
         assert job is None
-
-    def test_config_with_date_mapping(self, tmp_path: Path) -> None:
-        """Test config with date_mapping configured."""
-        config_file = tmp_path / "config.yaml"
-        config_file.write_text(r"""
-jobs:
-  daily_sync:
-    target_table: sales
-    id_mapping:
-      sale_id: id
-    date_mapping:
-      filename_regex: '(\d{4}-\d{2}-\d{2})'
-      db_column: sync_date
-""")
-
-        config = SyncConfig.from_yaml(config_file)
-        job = config.get_job("daily_sync")
-        assert job is not None
-        assert job.date_mapping is not None
-        assert job.date_mapping.filename_regex == r"(\d{4}-\d{2}-\d{2})"
-        assert job.date_mapping.db_column == "sync_date"
-
-    def test_config_missing_date_mapping_regex(self, tmp_path: Path) -> None:
-        """Test error when date_mapping is missing filename_regex."""
-        config_file = tmp_path / "config.yaml"
-        config_file.write_text("""
-jobs:
-  bad_job:
-    target_table: sales
-    id_mapping:
-      id: id
-    date_mapping:
-      db_column: sync_date
-""")
-
-        with pytest.raises(ValueError, match="date_mapping missing 'filename_regex'"):
-            SyncConfig.from_yaml(config_file)
-
-    def test_config_missing_date_mapping_column(self, tmp_path: Path) -> None:
-        """Test error when date_mapping is missing db_column."""
-        config_file = tmp_path / "config.yaml"
-        config_file.write_text(r"""
-jobs:
-  bad_job:
-    target_table: sales
-    id_mapping:
-      id: id
-    date_mapping:
-      filename_regex: '(\d{4}-\d{2}-\d{2})'
-""")
-
-        with pytest.raises(ValueError, match="date_mapping missing 'db_column'"):
-            SyncConfig.from_yaml(config_file)
-
-
-class TestDateMapping:
-    """Test suite for DateMapping functionality."""
-
-    def test_extract_date_from_filename_basic(self) -> None:
-        """Test extracting date from filename with basic pattern."""
-        mapping = DateMapping(r"(\d{4}-\d{2}-\d{2})", "sync_date")
-
-        date = mapping.extract_date_from_filename("sales_2024-01-15.csv")
-        assert date == "2024-01-15"
-
-    def test_extract_date_from_path(self) -> None:
-        """Test extracting date from Path object."""
-        mapping = DateMapping(r"(\d{4}-\d{2}-\d{2})", "sync_date")
-
-        path = Path("/data/files/report_2024-03-20.csv")
-        date = mapping.extract_date_from_filename(path)
-        assert date == "2024-03-20"
-
-    def test_extract_date_different_format(self) -> None:
-        """Test extracting date with different format."""
-        mapping = DateMapping(r"(\d{8})", "sync_date")
-
-        date = mapping.extract_date_from_filename("data_20240115.csv")
-        assert date == "20240115"
-
-    def test_extract_date_not_found(self) -> None:
-        """Test when date pattern is not found in filename."""
-        mapping = DateMapping(r"(\d{4}-\d{2}-\d{2})", "sync_date")
-
-        date = mapping.extract_date_from_filename("data.csv")
-        assert date is None
-
-    def test_extract_date_complex_pattern(self) -> None:
-        """Test extracting date with complex pattern."""
-        mapping = DateMapping(r"report_(\d{4}_\d{2}_\d{2})_final", "sync_date")
-
-        date = mapping.extract_date_from_filename("report_2024_01_15_final.csv")
-        assert date == "2024_01_15"
-
 
 class TestColumnDataTypes:
     """Test suite for column data types in config."""

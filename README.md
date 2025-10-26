@@ -12,8 +12,8 @@ Sync CSV and CDF science files into PostgreSQL database using configuration-base
 - **Configuration-Based**: Define sync jobs in YAML with column mappings
 - **Column Mapping**: Rename columns between CSV and database
 - **Selective Sync**: Choose which columns to sync or sync all
-- **Date-Based Syncing**: Extract dates from filenames and store in database
-- **Automatic Cleanup**: Delete stale records for specific dates after sync
+- **Filename-Based Extraction**: Extract values from filenames (dates, versions, etc.) and store in database columns
+- **Automatic Cleanup**: Delete stale records based on extracted filename values after sync
 - **Compound Primary Keys**: Support for multi-column primary keys
 - **Database Indexes**: Define indexes with custom sort orders
 - **Automatic Index Suggestions**: Prepare command suggests indexes based on column types
@@ -155,7 +155,7 @@ jobs:
       # Note: other CSV columns like 'internal_notes' won't be synced
 ```
 
-#### Example: Date-Based Sync from a Daily File with Automatic Cleanup
+#### Example: Filename-Based Value Extraction with Automatic Cleanup
 
 ```yaml
 jobs:
@@ -163,9 +163,13 @@ jobs:
     target_table: sales
     id_mapping:
       sale_id: id
-    date_mapping:
-      filename_regex: '(\d{4}-\d{2}-\d{2})'  # Extract YYYY-MM-DD from filename
-      db_column: sync_date                    # Store date in this column
+    filename_to_column:
+      template: "sales_[date].csv"  # Template to match filename pattern
+      columns:
+        date:
+          db_column: sync_date
+          type: date
+          use_to_delete_old_rows: true  # Use this column to identify stale rows
     columns:
       product_id: product_id
       amount: amount
@@ -260,39 +264,55 @@ columns:
   # internal_notes column is NOT synced
 ```
 
-#### Date-Based Syncing with Automatic Cleanup
+#### Filename-Based Value Extraction with Automatic Cleanup
 
-Extract dates from filenames and automatically clean up stale records:
+Extract values from filenames (dates, versions, mission names, etc.) and automatically clean up stale records:
 
 ```yaml
-date_mapping:
-  filename_regex: '(\d{4}-\d{2}-\d{2})'  # Regex to extract date
-  db_column: sync_date                    # Column to store date
+filename_to_column:
+  template: "[mission]_level2_[sensor]_[date]_v[version].cdf"
+  # OR use regex with named groups:
+  # regex: "(?P<mission>[a-z]+)_level2_(?P<sensor>[a-z]+)_(?P<date>\\d{8})_v(?P<version>\\d+)\\.cdf"
+  columns:
+    mission:
+      db_column: mission_name
+      type: varchar(10)
+    sensor:
+      db_column: sensor_type
+      type: varchar(20)
+    date:
+      db_column: observation_date
+      type: date
+      use_to_delete_old_rows: true  # Use this to identify stale rows
+    version:
+      db_column: file_version
+      type: varchar(10)
 ```
 
 **How it works:**
-1. **Date Extraction**: Extracts date from filename using regex pattern
-2. **Date Storage**: Stores the extracted date in all synced rows
-3. **Automatic Cleanup**: After syncing, deletes records with the same date whose IDs are no longer in the CSV
+1. **Value Extraction**: Extracts multiple values from filename using template or regex
+2. **Value Storage**: Stores the extracted values in designated database columns for all synced rows
+3. **Automatic Cleanup**: After syncing, deletes records where the delete key columns match but IDs are no longer in the CSV
 
 **Example workflow:**
 
 ```bash
-# Day 1: Sync sales data for 2024-01-15
-data-sync sync sales_2024-01-15.csv config.yaml daily_sales
-# Result: Inserts 100 sales records with sync_date = '2024-01-15'
+# Sync observation data for 2024-01-15
+data-sync sync imap_level2_primary_20240115_v001.cdf config.yaml obs_data
+# Result: Inserts 100 records with observation_date = '2024-01-15', mission_name = 'imap', etc.
 
-# Day 2: Re-sync same date with updated data (only 95 records)
-data-sync sync sales_2024-01-15_corrected.csv config.yaml daily_sales
-# Result: Updates existing 95 records, deletes 5 stale records
+# Re-sync same date with updated data (only 95 records, new version)
+data-sync sync imap_level2_primary_20240115_v002.cdf config.yaml obs_data
+# Result: Updates existing 95 records, deletes 5 stale records for that date
 #         Other dates in database remain unchanged
 ```
 
 **Benefits:**
-- Safe incremental syncs for time-series data
-- Automatic cleanup of removed records for specific dates
-- Preserves data from other dates
-- Perfect for daily/weekly/monthly data updates
+- Extract multiple values from filenames (not just dates)
+- Safe incremental syncs for time-series or partitioned data
+- Automatic cleanup of removed records based on compound keys
+- Preserves data from other partitions
+- Perfect for daily/weekly/monthly data updates or versioned files
 
 ### Programmatic API Usage
 

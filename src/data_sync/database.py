@@ -1063,10 +1063,6 @@ class DatabaseConnection:
                 sql_type = self.backend.map_data_type(col_mapping.data_type)
                 columns_def[col_mapping.db_column] = sql_type
 
-        # DEPRECATED: Add date column if date_mapping is configured (for backward compatibility)
-        if job.date_mapping:
-            columns_def[job.date_mapping.db_column] = "TEXT"
-
         return columns_def
 
     def _setup_table_schema(
@@ -1102,7 +1098,6 @@ class DatabaseConnection:
         job: SyncJob,
         sync_columns: list[Any],
         primary_keys: list[str],
-        sync_date: str | None,
         filename_values: dict[str, str] | None = None,
     ) -> tuple[int, set[tuple]]:
         """Process and upsert CSV rows into database.
@@ -1112,7 +1107,6 @@ class DatabaseConnection:
             job: SyncJob configuration
             sync_columns: List of ColumnMapping objects
             primary_keys: List of primary key column names
-            sync_date: Optional date value to store in date column (deprecated)
             filename_values: Optional dict of values extracted from filename
 
         Returns:
@@ -1133,10 +1127,6 @@ class DatabaseConnection:
                     if col_name in filename_values:
                         row_data[col_mapping.db_column] = filename_values[col_name]
 
-            # DEPRECATED: Add sync date if configured (for backward compatibility)
-            if job.date_mapping and sync_date:
-                row_data[job.date_mapping.db_column] = sync_date
-
             self.upsert_row(job.target_table, primary_keys, row_data)
 
             # Track synced IDs as tuples (for compound key support)
@@ -1151,7 +1141,6 @@ class DatabaseConnection:
         csv_path: Path,
         job: SyncJob,
         sync_columns: list[Any],
-        sync_date: str | None,
         filename_values: dict[str, str] | None = None,
     ) -> tuple[int, set[tuple]]:
         """Count CSV rows and track synced IDs without database operations.
@@ -1163,7 +1152,6 @@ class DatabaseConnection:
             csv_path: Path to CSV file
             job: SyncJob configuration
             sync_columns: List of ColumnMapping objects
-            sync_date: Optional date value (deprecated)
             filename_values: Optional dict of values extracted from filename
 
         Returns:
@@ -1185,10 +1173,6 @@ class DatabaseConnection:
                     for col_name, col_mapping in job.filename_to_column.columns.items():
                         if col_name in filename_values:
                             row_data[col_mapping.db_column] = filename_values[col_name]
-
-                # DEPRECATED: Add sync date if configured (for backward compatibility)
-                if job.date_mapping and sync_date:
-                    row_data[job.date_mapping.db_column] = sync_date
 
                 # Track synced IDs as tuples (for compound key support)
                 id_values = tuple(row_data[id_col.db_column] for id_col in job.id_mapping)
@@ -1235,7 +1219,6 @@ class DatabaseConnection:
         self,
         csv_path: Path,
         job: SyncJob,
-        sync_date: str | None = None,
         filename_values: dict[str, str] | None = None,
     ) -> DryRunSummary:
         """Simulate syncing a CSV file without making database changes.
@@ -1243,7 +1226,6 @@ class DatabaseConnection:
         Args:
             csv_path: Path to CSV file
             job: SyncJob configuration
-            sync_date: Optional date value to store in date column for all rows (deprecated)
             filename_values: Optional dict of values extracted from filename
 
         Returns:
@@ -1283,20 +1265,17 @@ class DatabaseConnection:
         # the upper bound of rows that could be updated.
         # If there are new columns, all rows will need updating regardless.
         summary.rows_to_sync, synced_ids = self._count_and_track_csv_rows(
-            csv_path, job, sync_columns, sync_date, filename_values
+            csv_path, job, sync_columns, filename_values
         )
 
-        # Count stale records that would be deleted (new filename_to_column approach)
+        # Count stale records that would be deleted
         if job.filename_to_column and filename_values and summary.table_exists:
             delete_key_columns = job.filename_to_column.get_delete_key_columns()
             if delete_key_columns:
                 # Build compound key values from filename_values
                 delete_key_values = {}
                 for col_name, col_mapping in job.filename_to_column.columns.items():
-                    if (
-                        col_mapping.use_to_delete_old_rows
-                        and col_name in filename_values
-                    ):
+                    if col_mapping.use_to_delete_old_rows and col_name in filename_values:
                         delete_key_values[col_mapping.db_column] = filename_values[col_name]
 
                 id_columns = [id_col.db_column for id_col in job.id_mapping]
@@ -1306,16 +1285,6 @@ class DatabaseConnection:
                     delete_key_values,
                     synced_ids,
                 )
-        # DEPRECATED: Count stale records using date_mapping (for backward compatibility)
-        elif job.date_mapping and sync_date and summary.table_exists:
-            id_columns = [id_col.db_column for id_col in job.id_mapping]
-            summary.rows_to_delete = self.count_stale_records(
-                job.target_table,
-                id_columns,
-                job.date_mapping.db_column,
-                sync_date,
-                synced_ids,
-            )
 
         return summary
 
@@ -1323,7 +1292,6 @@ class DatabaseConnection:
         self,
         csv_path: Path,
         job: SyncJob,
-        sync_date: str | None = None,
         filename_values: dict[str, str] | None = None,
     ) -> int:
         """Sync a CSV file to the database using job configuration.
@@ -1331,7 +1299,6 @@ class DatabaseConnection:
         Args:
             csv_path: Path to CSV file
             job: SyncJob configuration
-            sync_date: Optional date value to store in date column for all rows (deprecated)
             filename_values: Optional dict of values extracted from filename
 
         Returns:
@@ -1352,20 +1319,17 @@ class DatabaseConnection:
         with open(csv_path, encoding="utf-8") as f:
             reader = csv.DictReader(f)
             rows_synced, synced_ids = self._process_csv_rows(
-                reader, job, sync_columns, primary_keys, sync_date, filename_values
+                reader, job, sync_columns, primary_keys, filename_values
             )
 
-        # Clean up stale records (new filename_to_column approach)
+        # Clean up stale records
         if job.filename_to_column and filename_values:
             delete_key_columns = job.filename_to_column.get_delete_key_columns()
             if delete_key_columns:
                 # Build compound key values from filename_values
                 delete_key_values = {}
                 for col_name, col_mapping in job.filename_to_column.columns.items():
-                    if (
-                        col_mapping.use_to_delete_old_rows
-                        and col_name in filename_values
-                    ):
+                    if col_mapping.use_to_delete_old_rows and col_name in filename_values:
                         delete_key_values[col_mapping.db_column] = filename_values[col_name]
 
                 id_columns = [id_col.db_column for id_col in job.id_mapping]
@@ -1375,16 +1339,6 @@ class DatabaseConnection:
                     delete_key_values,
                     synced_ids,
                 )
-        # DEPRECATED: Clean up stale records using date_mapping (for backward compatibility)
-        elif job.date_mapping and sync_date:
-            id_columns = [id_col.db_column for id_col in job.id_mapping]
-            self.delete_stale_records(
-                job.target_table,
-                id_columns,
-                job.date_mapping.db_column,
-                sync_date,
-                synced_ids,
-            )
 
         return rows_synced
 
@@ -1393,7 +1347,6 @@ def sync_csv_to_postgres(
     csv_path: Path,
     job: SyncJob,
     db_connection_string: str,
-    sync_date: str | None = None,
     filename_values: dict[str, str] | None = None,
 ) -> int:
     """Sync a CSV file to PostgreSQL database.
@@ -1402,21 +1355,19 @@ def sync_csv_to_postgres(
         csv_path: Path to the CSV file
         job: SyncJob configuration
         db_connection_string: PostgreSQL connection string
-        sync_date: Optional date value to store in date column for all rows (deprecated)
         filename_values: Optional dict of values extracted from filename
 
     Returns:
         Number of rows synced
     """
     with DatabaseConnection(db_connection_string) as db:
-        return db.sync_csv_file(csv_path, job, sync_date, filename_values)
+        return db.sync_csv_file(csv_path, job, filename_values)
 
 
 def sync_csv_to_postgres_dry_run(
     csv_path: Path,
     job: SyncJob,
     db_connection_string: str,
-    sync_date: str | None = None,
     filename_values: dict[str, str] | None = None,
 ) -> DryRunSummary:
     """Simulate syncing a CSV file without making database changes.
@@ -1425,11 +1376,10 @@ def sync_csv_to_postgres_dry_run(
         csv_path: Path to the CSV file
         job: SyncJob configuration
         db_connection_string: Database connection string
-        sync_date: Optional date value to store in date column for all rows (deprecated)
         filename_values: Optional dict of values extracted from filename
 
     Returns:
         DryRunSummary with details of what would be changed
     """
     with DatabaseConnection(db_connection_string) as db:
-        return db.sync_csv_file_dry_run(csv_path, job, sync_date, filename_values)
+        return db.sync_csv_file_dry_run(csv_path, job, filename_values)
