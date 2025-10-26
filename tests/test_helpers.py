@@ -44,7 +44,12 @@ def create_config_file(
     Returns:
         Path to the created config file
     """
-    config_lines = ["jobs:", f"  {job_name}:", f"    target_table: {target_table}", "    id_mapping:"]
+    config_lines = [
+        "jobs:",
+        f"  {job_name}:",
+        f"    target_table: {target_table}",
+        "    id_mapping:",
+    ]
 
     for csv_col, db_col in id_mapping.items():
         config_lines.append(f"      {csv_col}: {db_col}")
