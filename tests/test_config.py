@@ -108,6 +108,7 @@ jobs:
         job = config.get_job("nonexistent")
         assert job is None
 
+
 class TestColumnDataTypes:
     """Test suite for column data types in config."""
 

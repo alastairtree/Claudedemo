@@ -196,3 +196,156 @@ class TestPrepareCommandIntegration:
         # Third run with force should succeed
         result3 = runner.invoke(prepare, [str(sample_csv), "--config", str(config_file), "--force"])
         assert result3.exit_code == 0
+
+
+class TestDetectFilenamePatterns:
+    """Tests for the detect_filename_patterns function."""
+
+    def test_detect_yyyymmdd_pattern(self) -> None:
+        """Test detecting YYYYMMDD date pattern."""
+        from data_sync.cli_prepare import detect_filename_patterns
+
+        result = detect_filename_patterns("data_20240115.csv")
+        assert result is not None
+        assert result.template == "data_[date].csv"
+        assert "date" in result.columns
+        assert result.columns["date"].db_column == "file_date"
+        assert result.columns["date"].data_type == "date"
+        assert result.columns["date"].use_to_delete_old_rows is True
+
+    def test_detect_yyyy_mm_dd_pattern(self) -> None:
+        """Test detecting YYYY-MM-DD date pattern."""
+        from data_sync.cli_prepare import detect_filename_patterns
+
+        result = detect_filename_patterns("sales_2024-01-15.csv")
+        assert result is not None
+        assert result.template == "sales_[date].csv"
+        assert "date" in result.columns
+
+    def test_detect_yyyy_mm_dd_underscore_pattern(self) -> None:
+        """Test detecting YYYY_MM_DD date pattern."""
+        from data_sync.cli_prepare import detect_filename_patterns
+
+        result = detect_filename_patterns("report_2024_12_31.csv")
+        assert result is not None
+        assert result.template == "report_[date].csv"
+        assert "date" in result.columns
+
+    def test_no_pattern_detected(self) -> None:
+        """Test when no date pattern is found."""
+        from data_sync.cli_prepare import detect_filename_patterns
+
+        result = detect_filename_patterns("simple_data.csv")
+        assert result is None
+
+    def test_date_in_middle_of_filename(self) -> None:
+        """Test date pattern in middle of filename."""
+        from data_sync.cli_prepare import detect_filename_patterns
+
+        result = detect_filename_patterns("prefix_20241225_suffix.csv")
+        assert result is not None
+        assert result.template == "prefix_[date]_suffix.csv"
+
+    def test_multiple_date_formats_prefer_first(self) -> None:
+        """Test that first matching pattern is used when multiple exist."""
+        from data_sync.cli_prepare import detect_filename_patterns
+
+        # YYYYMMDD appears first in search order
+        result = detect_filename_patterns("data_20240115_2024-01-15.csv")
+        assert result is not None
+        # Should match YYYYMMDD (first pattern)
+        assert "[date]_2024-01-15.csv" in result.template
+
+    def test_extraction_works_with_detected_pattern(self) -> None:
+        """Test that the detected pattern can actually extract values."""
+        from data_sync.cli_prepare import detect_filename_patterns
+
+        result = detect_filename_patterns("sales_20240315.csv")
+        assert result is not None
+
+        # Test that extraction works
+        values = result.extract_values_from_filename("sales_20240315.csv")
+        assert values is not None
+        assert values["date"] == "20240315"
+
+        # Test with different date
+        values2 = result.extract_values_from_filename("sales_20241201.csv")
+        assert values2 is not None
+        assert values2["date"] == "20241201"
+
+
+class TestPrepareWithFilenameDetection:
+    """Integration tests for prepare command with filename pattern detection."""
+
+    @pytest.fixture
+    def dated_csv(self, tmp_path: Path) -> Path:
+        """Create a CSV file with date in filename."""
+        csv_file = tmp_path / "data_20240115.csv"
+        csv_file.write_text("id,value\n1,100\n2,200\n")
+        return csv_file
+
+    def test_prepare_detects_and_adds_filename_to_column(
+        self, dated_csv: Path, tmp_path: Path
+    ) -> None:
+        """Test that prepare command detects date pattern and adds filename_to_column."""
+        from click.testing import CliRunner
+
+        from data_sync.cli_prepare import prepare
+        from data_sync.config import SyncConfig
+
+        config_file = tmp_path / "config.yaml"
+        runner = CliRunner()
+
+        result = runner.invoke(prepare, [str(dated_csv), "--config", str(config_file)])
+
+        assert result.exit_code == 0
+        assert "Detected date pattern in filename" in result.output
+
+        # Load config and verify filename_to_column was added
+        config = SyncConfig.from_yaml(config_file)
+        job = config.jobs["data"]
+
+        assert job.filename_to_column is not None
+        assert job.filename_to_column.template == "data_[date].csv"
+        assert "date" in job.filename_to_column.columns
+        assert job.filename_to_column.columns["date"].use_to_delete_old_rows is True
+
+    def test_prepare_no_detection_for_simple_filename(
+        self, sample_csv: Path, tmp_path: Path
+    ) -> None:
+        """Test that no filename_to_column is added for files without date patterns."""
+        from click.testing import CliRunner
+
+        from data_sync.cli_prepare import prepare
+        from data_sync.config import SyncConfig
+
+        # sample_csv is from parent class fixture: "test_data_2024.csv"
+        # This should match YYYYMMDD pattern (2024)
+        config_file = tmp_path / "config.yaml"
+        runner = CliRunner()
+
+        result = runner.invoke(prepare, [str(sample_csv), "--config", str(config_file)])
+
+        assert result.exit_code == 0
+
+        # Actually this file HAS a date pattern (2024), so it should detect it
+        config = SyncConfig.from_yaml(config_file)
+        job = list(config.jobs.values())[0]
+        # The fixture creates "test_data_2024.csv" which contains "2024" - 4 digits
+        # But our pattern looks for 8 digits (YYYYMMDD), so this should NOT match
+        # Let me check... actually "2024" is only 4 digits, not 8, so YYYYMMDD won't match
+
+        # But wait, let me re-read the fixture. It's "test_data_2024.csv"
+        # Our patterns are:
+        # - YYYYMMDD: r"(\d{8})" - requires 8 digits
+        # - YYYY-MM-DD: r"(\d{4}-\d{2}-\d{2})" - requires dashes
+        # - YYYY_MM_DD: r"(\d{4}_\d{2}_\d{2})" - requires underscores
+        # So "2024" alone won't match any pattern
+        assert job.filename_to_column is None
+
+    @pytest.fixture
+    def sample_csv(self, tmp_path: Path) -> Path:
+        """Create a simple CSV file without date pattern."""
+        csv_file = tmp_path / "simple_data.csv"
+        csv_file.write_text("id,name\n1,Alice\n2,Bob\n")
+        return csv_file

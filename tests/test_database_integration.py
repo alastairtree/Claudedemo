@@ -195,8 +195,8 @@ jobs:
         with DatabaseConnection(db_url) as db, pytest.raises(ValueError, match="not found in CSV"):
             db.sync_csv_file(csv_file, job)
 
-    def test_sync_with_date_mapping(self, tmp_path: Path, db_url: str) -> None:
-        """Test syncing with date_mapping stores date in column."""
+    def test_sync_with_filename_to_column(self, tmp_path: Path, db_url: str) -> None:
+        """Test syncing with filename_to_column extracts and stores values."""
         # Create CSV file
         csv_file = tmp_path / "sales_2024-01-15.csv"
         with open(csv_file, "w", newline="", encoding="utf-8") as f:
@@ -205,7 +205,7 @@ jobs:
             writer.writerow({"sale_id": "1", "amount": "100"})
             writer.writerow({"sale_id": "2", "amount": "200"})
 
-        # Create config with date_mapping
+        # Create config with filename_to_column
         config_file = tmp_path / "config.yaml"
         config_file.write_text(r"""
 jobs:
@@ -213,21 +213,25 @@ jobs:
     target_table: sales
     id_mapping:
       sale_id: id
-    date_mapping:
-      filename_regex: '(\d{4}-\d{2}-\d{2})'
-      db_column: sync_date
+    filename_to_column:
+      template: "sales_[date].csv"
+      columns:
+        date:
+          db_column: sync_date
+          type: date
+          use_to_delete_old_rows: true
 """)
 
         config = SyncConfig.from_yaml(config_file)
         job = config.get_job("daily_sales")
         assert job is not None
-        assert job.date_mapping is not None
+        assert job.filename_to_column is not None
 
-        # Extract date and sync
-        sync_date = job.date_mapping.extract_date_from_filename(csv_file)
-        assert sync_date == "2024-01-15"
+        # Extract values and sync
+        filename_values = job.filename_to_column.extract_values_from_filename(csv_file)
+        assert filename_values == {"date": "2024-01-15"}
 
-        rows_synced = sync_csv_to_postgres(csv_file, job, db_url, sync_date)
+        rows_synced = sync_csv_to_postgres(csv_file, job, db_url, filename_values)
         assert rows_synced == 2
 
         # Verify date column was created and populated
@@ -240,7 +244,7 @@ jobs:
         assert rows[1] == ("2", "200", "2024-01-15")
 
     def test_delete_stale_records(self, tmp_path: Path, db_url: str) -> None:
-        """Test that stale records are deleted after sync."""
+        """Test that stale records are deleted after sync with filename_to_column."""
         # First sync with 3 records for date 2024-01-15
         csv_file = tmp_path / "data_2024-01-15.csv"
         with open(csv_file, "w", newline="", encoding="utf-8") as f:
@@ -257,16 +261,20 @@ jobs:
     target_table: data
     id_mapping:
       id: id
-    date_mapping:
-      filename_regex: '(\d{4}-\d{2}-\d{2})'
-      db_column: sync_date
+    filename_to_column:
+      template: "data_[date].csv"
+      columns:
+        date:
+          db_column: sync_date
+          type: date
+          use_to_delete_old_rows: true
 """)
 
         config = SyncConfig.from_yaml(config_file)
         job = config.get_job("daily_data")
 
-        sync_date = job.date_mapping.extract_date_from_filename(csv_file)
-        rows_synced = sync_csv_to_postgres(csv_file, job, db_url, sync_date)
+        filename_values = job.filename_to_column.extract_values_from_filename(csv_file)
+        rows_synced = sync_csv_to_postgres(csv_file, job, db_url, filename_values)
         assert rows_synced == 3
 
         # Verify 3 records exist
@@ -282,7 +290,7 @@ jobs:
             writer.writerow({"id": "1", "value": "A_updated"})
             writer.writerow({"id": "2", "value": "B_updated"})
 
-        rows_synced_2 = sync_csv_to_postgres(csv_file, job, db_url, sync_date)
+        rows_synced_2 = sync_csv_to_postgres(csv_file, job, db_url, filename_values)
         assert rows_synced_2 == 2
 
         # Verify only 2 records remain for this date
@@ -294,7 +302,7 @@ jobs:
         assert rows[1] == ("2", "B_updated")
 
     def test_delete_stale_records_preserves_other_dates(self, tmp_path: Path, db_url: str) -> None:
-        """Test that deleting stale records only affects matching date."""
+        """Test that deleting stale records only affects matching date with filename_to_column."""
         config_file = tmp_path / "config.yaml"
         config_file.write_text(r"""
 jobs:
@@ -302,9 +310,13 @@ jobs:
     target_table: multi_date_data
     id_mapping:
       id: id
-    date_mapping:
-      filename_regex: '(\d{4}-\d{2}-\d{2})'
-      db_column: sync_date
+    filename_to_column:
+      template: "data_[date].csv"
+      columns:
+        date:
+          db_column: sync_date
+          type: date
+          use_to_delete_old_rows: true
 """)
 
         config = SyncConfig.from_yaml(config_file)
@@ -318,8 +330,8 @@ jobs:
             writer.writerow({"id": "1", "value": "Day1"})
             writer.writerow({"id": "2", "value": "Day1"})
 
-        sync_date_1 = job.date_mapping.extract_date_from_filename(csv_file_1)
-        sync_csv_to_postgres(csv_file_1, job, db_url, sync_date_1)
+        filename_values_1 = job.filename_to_column.extract_values_from_filename(csv_file_1)
+        sync_csv_to_postgres(csv_file_1, job, db_url, filename_values_1)
 
         # Sync data for 2024-01-16
         csv_file_2 = tmp_path / "data_2024-01-16.csv"
@@ -330,8 +342,8 @@ jobs:
             writer.writerow({"id": "2", "value": "Day2"})
             writer.writerow({"id": "3", "value": "Day2"})
 
-        sync_date_2 = job.date_mapping.extract_date_from_filename(csv_file_2)
-        sync_csv_to_postgres(csv_file_2, job, db_url, sync_date_2)
+        filename_values_2 = job.filename_to_column.extract_values_from_filename(csv_file_2)
+        sync_csv_to_postgres(csv_file_2, job, db_url, filename_values_2)
 
         # Verify total records (IDs 1,2 were updated to day 2, ID 3 was inserted)
         total_count_result = execute_query(db_url, "SELECT COUNT(*) FROM multi_date_data")
@@ -343,7 +355,7 @@ jobs:
             writer.writeheader()
             writer.writerow({"id": "1", "value": "Day1_updated"})
 
-        sync_csv_to_postgres(csv_file_1, job, db_url, sync_date_1)
+        sync_csv_to_postgres(csv_file_1, job, db_url, filename_values_1)
 
         # Verify: ID 1 updated back to day 1, IDs 2 and 3 still on day 2
         day1_count_result = execute_query(
@@ -682,3 +694,200 @@ jobs:
         assert "idx_name" in indexes
         assert "idx_category" in indexes
         assert "idx_category_price" in indexes
+
+    def test_filename_to_column_multiple_values(self, tmp_path: Path, db_url: str) -> None:
+        """Test extracting multiple values from filename with template syntax."""
+        # Create CSV file with filename containing multiple values
+        csv_file = tmp_path / "imap_level2_primary_20240115_v002.cdf"
+        with open(csv_file, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["obs_id", "measurement"])
+            writer.writeheader()
+            writer.writerow({"obs_id": "1", "measurement": "42.5"})
+            writer.writerow({"obs_id": "2", "measurement": "38.2"})
+
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(r"""
+jobs:
+  obs_data:
+    target_table: observations
+    id_mapping:
+      obs_id: id
+    filename_to_column:
+      template: "[mission]_level2_[sensor]_[date]_v[version].cdf"
+      columns:
+        mission:
+          db_column: mission_name
+          type: varchar(10)
+        sensor:
+          db_column: sensor_type
+          type: varchar(20)
+        date:
+          db_column: observation_date
+          type: date
+          use_to_delete_old_rows: true
+        version:
+          db_column: file_version
+          type: varchar(10)
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("obs_data")
+        assert job is not None
+        assert job.filename_to_column is not None
+
+        # Extract values
+        filename_values = job.filename_to_column.extract_values_from_filename(csv_file)
+        assert filename_values == {
+            "mission": "imap",
+            "sensor": "primary",
+            "date": "20240115",
+            "version": "002",
+        }
+
+        # Sync data
+        rows_synced = sync_csv_to_postgres(csv_file, job, db_url, filename_values)
+        assert rows_synced == 2
+
+        # Verify all columns were created
+        columns = get_table_columns(db_url, "observations")
+        assert "mission_name" in columns
+        assert "sensor_type" in columns
+        assert "observation_date" in columns
+        assert "file_version" in columns
+
+        # Verify data was inserted with extracted values
+        rows = execute_query(
+            db_url,
+            "SELECT id, measurement, mission_name, sensor_type, observation_date, file_version FROM observations ORDER BY id",
+        )
+        assert len(rows) == 2
+        assert rows[0] == ("1", "42.5", "imap", "primary", "20240115", "002")
+        assert rows[1] == ("2", "38.2", "imap", "primary", "20240115", "002")
+
+    def test_filename_to_column_regex_syntax(self, tmp_path: Path, db_url: str) -> None:
+        """Test extracting values from filename with regex syntax."""
+        csv_file = tmp_path / "data_20240315_v1.csv"
+        with open(csv_file, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["record_id", "value"])
+            writer.writeheader()
+            writer.writerow({"record_id": "1", "value": "test"})
+
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(r"""
+jobs:
+  versioned_data:
+    target_table: versioned_records
+    id_mapping:
+      record_id: id
+    filename_to_column:
+      regex: "data_(?P<date>\\d{8})_v(?P<version>\\d+)\\.csv"
+      columns:
+        date:
+          db_column: record_date
+          type: date
+          use_to_delete_old_rows: true
+        version:
+          db_column: data_version
+          type: integer
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("versioned_data")
+
+        # Extract values using regex
+        filename_values = job.filename_to_column.extract_values_from_filename(csv_file)
+        assert filename_values == {"date": "20240315", "version": "1"}
+
+        # Sync data
+        rows_synced = sync_csv_to_postgres(csv_file, job, db_url, filename_values)
+        assert rows_synced == 1
+
+        # Verify data
+        rows = execute_query(
+            db_url, "SELECT id, value, record_date, data_version FROM versioned_records"
+        )
+        assert len(rows) == 1
+        assert rows[0] == ("1", "test", "20240315", "1")
+
+    def test_filename_to_column_compound_key_deletion(self, tmp_path: Path, db_url: str) -> None:
+        """Test stale record deletion using compound key from filename values."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(r"""
+jobs:
+  mission_data:
+    target_table: mission_records
+    id_mapping:
+      obs_id: id
+    filename_to_column:
+      template: "[mission]_[date]_v[version].csv"
+      columns:
+        mission:
+          db_column: mission_name
+          type: varchar(20)
+          use_to_delete_old_rows: true
+        date:
+          db_column: observation_date
+          type: date
+          use_to_delete_old_rows: true
+        version:
+          db_column: file_version
+          type: varchar(10)
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("mission_data")
+
+        # First sync: mission A, date 2024-01-15, version v1
+        csv_file_1 = tmp_path / "missionA_2024-01-15_v1.csv"
+        with open(csv_file_1, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["obs_id", "value"])
+            writer.writeheader()
+            writer.writerow({"obs_id": "1", "value": "A1"})
+            writer.writerow({"obs_id": "2", "value": "A2"})
+            writer.writerow({"obs_id": "3", "value": "A3"})
+
+        filename_values_1 = job.filename_to_column.extract_values_from_filename(csv_file_1)
+        sync_csv_to_postgres(csv_file_1, job, db_url, filename_values_1)
+
+        # Second sync: mission A, different date, version v1
+        csv_file_2 = tmp_path / "missionA_2024-01-16_v1.csv"
+        with open(csv_file_2, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["obs_id", "value"])
+            writer.writeheader()
+            writer.writerow({"obs_id": "1", "value": "A1_day2"})
+            writer.writerow({"obs_id": "2", "value": "A2_day2"})
+
+        filename_values_2 = job.filename_to_column.extract_values_from_filename(csv_file_2)
+        sync_csv_to_postgres(csv_file_2, job, db_url, filename_values_2)
+
+        # Verify we have 3 records total (IDs 1,2 updated to day 2, ID 3 still on day 1)
+        total_count = execute_query(db_url, "SELECT COUNT(*) FROM mission_records")
+        assert total_count[0][0] == 3
+
+        # Re-sync first file with only 2 records (ID 3 removed)
+        with open(csv_file_1, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["obs_id", "value"])
+            writer.writeheader()
+            writer.writerow({"obs_id": "1", "value": "A1_updated"})
+            writer.writerow({"obs_id": "2", "value": "A2_updated"})
+
+        sync_csv_to_postgres(csv_file_1, job, db_url, filename_values_1)
+
+        # Verify: Records for mission A + date 2024-01-15 only have IDs 1,2
+        # Mission A + date 2024-01-16 should still have IDs 1,2
+        day1_count = execute_query(
+            db_url,
+            "SELECT COUNT(*) FROM mission_records WHERE mission_name = %s AND observation_date = %s",
+            ("missionA", "2024-01-15"),
+        )
+        assert day1_count[0][0] == 2  # ID 3 was deleted for this combination
+
+        day2_count = execute_query(
+            db_url,
+            "SELECT COUNT(*) FROM mission_records WHERE mission_name = %s AND observation_date = %s",
+            ("missionA", "2024-01-16"),
+        )
+        assert day2_count[0][0] == 2  # Unchanged
+
+        total_after = execute_query(db_url, "SELECT COUNT(*) FROM mission_records")
+        assert total_after[0][0] == 4  # 2 from day 1, 2 from day 2
