@@ -58,9 +58,26 @@ def sync(file_path: Path, config: Path, job: str, db_url: str, dry_run: bool) ->
             console.print(f"[dim]Available jobs: {available_jobs}[/dim]")
             raise click.Abort()
 
-        # Extract date from filename if date_mapping is configured
+        # Extract values from filename if filename_to_column is configured
+        filename_values = None
+        if sync_job.filename_to_column:
+            filename_values = sync_job.filename_to_column.extract_values_from_filename(file_path)
+            if not filename_values:
+                console.print(
+                    f"[red]Error:[/red] Could not extract values from filename '{file_path.name}'"
+                )
+                pattern = (
+                    sync_job.filename_to_column.template
+                    if sync_job.filename_to_column.template
+                    else sync_job.filename_to_column.regex
+                )
+                console.print(f"[dim]  Pattern: {pattern}[/dim]")
+                raise click.Abort()
+            console.print(f"[dim]  Extracted values: {filename_values}[/dim]")
+
+        # DEPRECATED: Extract date from filename if date_mapping is configured (for backward compatibility)
         sync_date = None
-        if sync_job.date_mapping:
+        if sync_job.date_mapping and not filename_values:
             sync_date = sync_job.date_mapping.extract_date_from_filename(file_path)
             if not sync_date:
                 console.print(
@@ -75,7 +92,9 @@ def sync(file_path: Path, config: Path, job: str, db_url: str, dry_run: bool) ->
             console.print(
                 f"[cyan]DRY RUN: Simulating sync of {file_path.name} using job '{job}'...[/cyan]"
             )
-            summary = sync_csv_to_postgres_dry_run(file_path, sync_job, db_url, sync_date)
+            summary = sync_csv_to_postgres_dry_run(
+                file_path, sync_job, db_url, sync_date, filename_values
+            )
 
             # Display dry-run summary
             console.print("\n[bold yellow]Dry-run Summary[/bold yellow]")
@@ -111,28 +130,32 @@ def sync(file_path: Path, config: Path, job: str, db_url: str, dry_run: bool) ->
                 f"[green]  • {summary.rows_to_sync} row(s) would be inserted/updated[/green]"
             )
 
-            if sync_date and summary.rows_to_delete > 0:
+            if (sync_date or filename_values) and summary.rows_to_delete > 0:
                 console.print(
                     f"[yellow]  • {summary.rows_to_delete} stale row(s) would be deleted[/yellow]"
                 )
-            elif sync_date:
+            elif sync_date or filename_values:
                 console.print("[green]  • No stale rows to delete[/green]")
 
             console.print(
                 "\n[bold green]✓ Dry-run complete - no changes made to database[/bold green]"
             )
             console.print(f"[dim]  File: {file_path}[/dim]")
-            if sync_date:
+            if filename_values:
+                console.print(f"[dim]  Extracted values: {filename_values}[/dim]")
+            elif sync_date:
                 console.print(f"[dim]  Date: {sync_date}[/dim]")
         else:
             # Sync the file
             console.print(f"[cyan]Syncing {file_path.name} using job '{job}'...[/cyan]")
-            rows_synced = sync_csv_to_postgres(file_path, sync_job, db_url, sync_date)
+            rows_synced = sync_csv_to_postgres(file_path, sync_job, db_url, sync_date, filename_values)
 
             console.print(f"[green]✓ Successfully synced {rows_synced} rows[/green]")
             console.print(f"[dim]  Table: {sync_job.target_table}[/dim]")
             console.print(f"[dim]  File: {file_path}[/dim]")
-            if sync_date:
+            if filename_values:
+                console.print(f"[dim]  Extracted values: {filename_values}[/dim]")
+            elif sync_date:
                 console.print(f"[dim]  Date: {sync_date}[/dim]")
 
     except FileNotFoundError as e:

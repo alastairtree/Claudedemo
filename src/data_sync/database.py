@@ -337,6 +337,145 @@ class PostgreSQLBackend:
 
         return deleted_count
 
+    def count_stale_records_compound(
+        self,
+        table_name: str,
+        id_columns: list[str],
+        filter_columns: dict[str, str],
+        current_ids: set[tuple],
+    ) -> int:
+        """Count records that would be deleted using compound filter key.
+
+        Args:
+            table_name: Name of the table
+            id_columns: List of ID column names (for compound keys)
+            filter_columns: Dictionary of column_name -> value to filter by (compound key)
+            current_ids: Set of ID tuples from the current CSV
+
+        Returns:
+            Count of records that would be deleted
+        """
+        if not current_ids or not filter_columns:
+            return 0
+
+        # Build WHERE clause: WHERE col1 = ? AND col2 = ? AND (id1, id2) NOT IN (...)
+        filter_conditions = [
+            sql.SQL("{} = %s").format(sql.Identifier(col)) for col in filter_columns.keys()
+        ]
+
+        if len(id_columns) == 1:
+            # Single key - simpler query
+            current_ids_list = [
+                id_val[0] if isinstance(id_val, tuple) else id_val for id_val in current_ids
+            ]
+            count_query = sql.SQL("SELECT COUNT(*) FROM {} WHERE {} AND {} NOT IN ({})").format(
+                sql.Identifier(table_name),
+                sql.SQL(" AND ").join(filter_conditions),
+                sql.Identifier(id_columns[0]),
+                sql.SQL(", ").join(sql.Placeholder() * len(current_ids_list)),
+            )
+            params = tuple(list(filter_columns.values()) + current_ids_list)
+        else:
+            # Compound key - use row value constructor
+            id_cols_sql = sql.SQL("({})").format(
+                sql.SQL(", ").join(sql.Identifier(col) for col in id_columns)
+            )
+            placeholders = sql.SQL(", ").join(
+                sql.SQL("({})").format(sql.SQL(", ").join(sql.Placeholder() * len(id_columns)))
+                for _ in current_ids
+            )
+            count_query = sql.SQL("SELECT COUNT(*) FROM {} WHERE {} AND {} NOT IN ({})").format(
+                sql.Identifier(table_name),
+                sql.SQL(" AND ").join(filter_conditions),
+                id_cols_sql,
+                placeholders,
+            )
+            # Flatten the list of tuples for params
+            id_params = [val for id_tuple in current_ids for val in id_tuple]
+            params = tuple(list(filter_columns.values()) + id_params)
+
+        count_result = self.fetchall(count_query.as_string(self.conn), params)
+        return count_result[0][0] if count_result else 0
+
+    def delete_stale_records_compound(
+        self,
+        table_name: str,
+        id_columns: list[str],
+        filter_columns: dict[str, str],
+        current_ids: set[tuple],
+    ) -> int:
+        """Delete records from database that aren't in current CSV using compound filter key.
+
+        Args:
+            table_name: Name of the table
+            id_columns: List of ID column names (for compound keys)
+            filter_columns: Dictionary of column_name -> value to filter by (compound key)
+            current_ids: Set of ID tuples from the current CSV
+
+        Returns:
+            Count of records deleted
+        """
+        if not current_ids or not filter_columns:
+            return 0
+
+        # Build WHERE clause: WHERE col1 = ? AND col2 = ? AND (id1, id2) NOT IN (...)
+        filter_conditions = [
+            sql.SQL("{} = %s").format(sql.Identifier(col)) for col in filter_columns.keys()
+        ]
+
+        if len(id_columns) == 1:
+            # Single key - simpler query
+            current_ids_list = [
+                id_val[0] if isinstance(id_val, tuple) else id_val for id_val in current_ids
+            ]
+            count_query = sql.SQL("SELECT COUNT(*) FROM {} WHERE {} AND {} NOT IN ({})").format(
+                sql.Identifier(table_name),
+                sql.SQL(" AND ").join(filter_conditions),
+                sql.Identifier(id_columns[0]),
+                sql.SQL(", ").join(sql.Placeholder() * len(current_ids_list)),
+            )
+            delete_query = sql.SQL("DELETE FROM {} WHERE {} AND {} NOT IN ({})").format(
+                sql.Identifier(table_name),
+                sql.SQL(" AND ").join(filter_conditions),
+                sql.Identifier(id_columns[0]),
+                sql.SQL(", ").join(sql.Placeholder() * len(current_ids_list)),
+            )
+            params = tuple(list(filter_columns.values()) + current_ids_list)
+        else:
+            # Compound key - use row value constructor
+            id_cols_sql = sql.SQL("({})").format(
+                sql.SQL(", ").join(sql.Identifier(col) for col in id_columns)
+            )
+            placeholders = sql.SQL(", ").join(
+                sql.SQL("({})").format(sql.SQL(", ").join(sql.Placeholder() * len(id_columns)))
+                for _ in current_ids
+            )
+            count_query = sql.SQL("SELECT COUNT(*) FROM {} WHERE {} AND {} NOT IN ({})").format(
+                sql.Identifier(table_name),
+                sql.SQL(" AND ").join(filter_conditions),
+                id_cols_sql,
+                placeholders,
+            )
+            delete_query = sql.SQL("DELETE FROM {} WHERE {} AND {} NOT IN ({})").format(
+                sql.Identifier(table_name),
+                sql.SQL(" AND ").join(filter_conditions),
+                id_cols_sql,
+                placeholders,
+            )
+            # Flatten the list of tuples for params
+            id_params = [val for id_tuple in current_ids for val in id_tuple]
+            params = tuple(list(filter_columns.values()) + id_params)
+
+        # Count first
+        count_result = self.fetchall(count_query.as_string(self.conn), params)
+        deleted_count = count_result[0][0] if count_result else 0
+
+        # Then delete
+        self.execute(delete_query.as_string(self.conn), params)
+        self.commit()
+
+        return deleted_count
+
     def get_existing_indexes(self, table_name: str) -> set[str]:
         """Get set of existing index names for a table."""
         query = """
@@ -918,7 +1057,13 @@ class DatabaseConnection:
 
             columns_def[col_mapping.db_column] = sql_type
 
-        # Add date column if date_mapping is configured
+        # Add filename_to_column columns if configured
+        if job.filename_to_column:
+            for col_mapping in job.filename_to_column.columns.values():
+                sql_type = self.backend.map_data_type(col_mapping.data_type)
+                columns_def[col_mapping.db_column] = sql_type
+
+        # DEPRECATED: Add date column if date_mapping is configured (for backward compatibility)
         if job.date_mapping:
             columns_def[job.date_mapping.db_column] = "TEXT"
 
@@ -958,6 +1103,7 @@ class DatabaseConnection:
         sync_columns: list[Any],
         primary_keys: list[str],
         sync_date: str | None,
+        filename_values: dict[str, str] | None = None,
     ) -> tuple[int, set[tuple]]:
         """Process and upsert CSV rows into database.
 
@@ -966,7 +1112,8 @@ class DatabaseConnection:
             job: SyncJob configuration
             sync_columns: List of ColumnMapping objects
             primary_keys: List of primary key column names
-            sync_date: Optional date value to store in date column
+            sync_date: Optional date value to store in date column (deprecated)
+            filename_values: Optional dict of values extracted from filename
 
         Returns:
             Tuple of (rows_synced, synced_ids) where synced_ids are tuples of ID values
@@ -980,7 +1127,13 @@ class DatabaseConnection:
                 if col_mapping.csv_column in row:
                     row_data[col_mapping.db_column] = row[col_mapping.csv_column]
 
-            # Add sync date if configured
+            # Add filename values if configured
+            if job.filename_to_column and filename_values:
+                for col_name, col_mapping in job.filename_to_column.columns.items():
+                    if col_name in filename_values:
+                        row_data[col_mapping.db_column] = filename_values[col_name]
+
+            # DEPRECATED: Add sync date if configured (for backward compatibility)
             if job.date_mapping and sync_date:
                 row_data[job.date_mapping.db_column] = sync_date
 
@@ -999,6 +1152,7 @@ class DatabaseConnection:
         job: SyncJob,
         sync_columns: list[Any],
         sync_date: str | None,
+        filename_values: dict[str, str] | None = None,
     ) -> tuple[int, set[tuple]]:
         """Count CSV rows and track synced IDs without database operations.
 
@@ -1009,7 +1163,8 @@ class DatabaseConnection:
             csv_path: Path to CSV file
             job: SyncJob configuration
             sync_columns: List of ColumnMapping objects
-            sync_date: Optional date value
+            sync_date: Optional date value (deprecated)
+            filename_values: Optional dict of values extracted from filename
 
         Returns:
             Tuple of (row_count, synced_ids) where synced_ids are tuples of ID values
@@ -1025,7 +1180,13 @@ class DatabaseConnection:
                     if col_mapping.csv_column in row:
                         row_data[col_mapping.db_column] = row[col_mapping.csv_column]
 
-                # Add sync date if configured
+                # Add filename values if configured
+                if job.filename_to_column and filename_values:
+                    for col_name, col_mapping in job.filename_to_column.columns.items():
+                        if col_name in filename_values:
+                            row_data[col_mapping.db_column] = filename_values[col_name]
+
+                # DEPRECATED: Add sync date if configured (for backward compatibility)
                 if job.date_mapping and sync_date:
                     row_data[job.date_mapping.db_column] = sync_date
 
@@ -1071,14 +1232,19 @@ class DatabaseConnection:
         return csv_columns, sync_columns, columns_def
 
     def sync_csv_file_dry_run(
-        self, csv_path: Path, job: SyncJob, sync_date: str | None = None
+        self,
+        csv_path: Path,
+        job: SyncJob,
+        sync_date: str | None = None,
+        filename_values: dict[str, str] | None = None,
     ) -> DryRunSummary:
         """Simulate syncing a CSV file without making database changes.
 
         Args:
             csv_path: Path to CSV file
             job: SyncJob configuration
-            sync_date: Optional date value to store in date column for all rows
+            sync_date: Optional date value to store in date column for all rows (deprecated)
+            filename_values: Optional dict of values extracted from filename
 
         Returns:
             DryRunSummary with details of what would be changed
@@ -1117,11 +1283,31 @@ class DatabaseConnection:
         # the upper bound of rows that could be updated.
         # If there are new columns, all rows will need updating regardless.
         summary.rows_to_sync, synced_ids = self._count_and_track_csv_rows(
-            csv_path, job, sync_columns, sync_date
+            csv_path, job, sync_columns, sync_date, filename_values
         )
 
-        # Count stale records that would be deleted
-        if job.date_mapping and sync_date and summary.table_exists:
+        # Count stale records that would be deleted (new filename_to_column approach)
+        if job.filename_to_column and filename_values and summary.table_exists:
+            delete_key_columns = job.filename_to_column.get_delete_key_columns()
+            if delete_key_columns:
+                # Build compound key values from filename_values
+                delete_key_values = {}
+                for col_name, col_mapping in job.filename_to_column.columns.items():
+                    if (
+                        col_mapping.use_to_delete_old_rows
+                        and col_name in filename_values
+                    ):
+                        delete_key_values[col_mapping.db_column] = filename_values[col_name]
+
+                id_columns = [id_col.db_column for id_col in job.id_mapping]
+                summary.rows_to_delete = self.count_stale_records_compound(
+                    job.target_table,
+                    id_columns,
+                    delete_key_values,
+                    synced_ids,
+                )
+        # DEPRECATED: Count stale records using date_mapping (for backward compatibility)
+        elif job.date_mapping and sync_date and summary.table_exists:
             id_columns = [id_col.db_column for id_col in job.id_mapping]
             summary.rows_to_delete = self.count_stale_records(
                 job.target_table,
@@ -1133,13 +1319,20 @@ class DatabaseConnection:
 
         return summary
 
-    def sync_csv_file(self, csv_path: Path, job: SyncJob, sync_date: str | None = None) -> int:
+    def sync_csv_file(
+        self,
+        csv_path: Path,
+        job: SyncJob,
+        sync_date: str | None = None,
+        filename_values: dict[str, str] | None = None,
+    ) -> int:
         """Sync a CSV file to the database using job configuration.
 
         Args:
             csv_path: Path to CSV file
             job: SyncJob configuration
-            sync_date: Optional date value to store in date column for all rows
+            sync_date: Optional date value to store in date column for all rows (deprecated)
+            filename_values: Optional dict of values extracted from filename
 
         Returns:
             Number of rows synced
@@ -1159,11 +1352,31 @@ class DatabaseConnection:
         with open(csv_path, encoding="utf-8") as f:
             reader = csv.DictReader(f)
             rows_synced, synced_ids = self._process_csv_rows(
-                reader, job, sync_columns, primary_keys, sync_date
+                reader, job, sync_columns, primary_keys, sync_date, filename_values
             )
 
-        # Clean up stale records if date_mapping is configured
-        if job.date_mapping and sync_date:
+        # Clean up stale records (new filename_to_column approach)
+        if job.filename_to_column and filename_values:
+            delete_key_columns = job.filename_to_column.get_delete_key_columns()
+            if delete_key_columns:
+                # Build compound key values from filename_values
+                delete_key_values = {}
+                for col_name, col_mapping in job.filename_to_column.columns.items():
+                    if (
+                        col_mapping.use_to_delete_old_rows
+                        and col_name in filename_values
+                    ):
+                        delete_key_values[col_mapping.db_column] = filename_values[col_name]
+
+                id_columns = [id_col.db_column for id_col in job.id_mapping]
+                self.delete_stale_records_compound(
+                    job.target_table,
+                    id_columns,
+                    delete_key_values,
+                    synced_ids,
+                )
+        # DEPRECATED: Clean up stale records using date_mapping (for backward compatibility)
+        elif job.date_mapping and sync_date:
             id_columns = [id_col.db_column for id_col in job.id_mapping]
             self.delete_stale_records(
                 job.target_table,
@@ -1177,7 +1390,11 @@ class DatabaseConnection:
 
 
 def sync_csv_to_postgres(
-    csv_path: Path, job: SyncJob, db_connection_string: str, sync_date: str | None = None
+    csv_path: Path,
+    job: SyncJob,
+    db_connection_string: str,
+    sync_date: str | None = None,
+    filename_values: dict[str, str] | None = None,
 ) -> int:
     """Sync a CSV file to PostgreSQL database.
 
@@ -1185,17 +1402,22 @@ def sync_csv_to_postgres(
         csv_path: Path to the CSV file
         job: SyncJob configuration
         db_connection_string: PostgreSQL connection string
-        sync_date: Optional date value to store in date column for all rows
+        sync_date: Optional date value to store in date column for all rows (deprecated)
+        filename_values: Optional dict of values extracted from filename
 
     Returns:
         Number of rows synced
     """
     with DatabaseConnection(db_connection_string) as db:
-        return db.sync_csv_file(csv_path, job, sync_date)
+        return db.sync_csv_file(csv_path, job, sync_date, filename_values)
 
 
 def sync_csv_to_postgres_dry_run(
-    csv_path: Path, job: SyncJob, db_connection_string: str, sync_date: str | None = None
+    csv_path: Path,
+    job: SyncJob,
+    db_connection_string: str,
+    sync_date: str | None = None,
+    filename_values: dict[str, str] | None = None,
 ) -> DryRunSummary:
     """Simulate syncing a CSV file without making database changes.
 
@@ -1203,10 +1425,11 @@ def sync_csv_to_postgres_dry_run(
         csv_path: Path to the CSV file
         job: SyncJob configuration
         db_connection_string: Database connection string
-        sync_date: Optional date value to store in date column for all rows
+        sync_date: Optional date value to store in date column for all rows (deprecated)
+        filename_values: Optional dict of values extracted from filename
 
     Returns:
         DryRunSummary with details of what would be changed
     """
     with DatabaseConnection(db_connection_string) as db:
-        return db.sync_csv_file_dry_run(csv_path, job, sync_date)
+        return db.sync_csv_file_dry_run(csv_path, job, sync_date, filename_values)
