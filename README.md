@@ -1,19 +1,24 @@
 # data-sync
 
-Sync CSV and CDF science files into PostgreSQL database using configuration-based jobs.
+WARNING: This is a demo and all code is entirely untested. Use at your own risk! 
 
-[![CI](https://github.com/yourusername/data-sync/workflows/CI/badge.svg)](https://github.com/yourusername/data-sync/actions)
+Examines and syncs CSV and CDF science files into PostgreSQL or SQLite databases in batched files using easy to edit configuration files.
+
+[![CI](https://github.com/alastairtree/clauddemo/workflows/CI/badge.svg)](https://github.com/alastairtree/clauddemo/actions)
 [![Python Version](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
 ## Overview
 
-**data-sync** is a powerful command-line tool and Python library for syncing CSV and CDF files to PostgreSQL databases. It provides a declarative, configuration-based approach to data synchronization with advanced features for production use.
+**data-sync** is a command-line tool and Python library for easy syncing CSV and CDF files to a PostgreSQL database. It provides a declarative, configuration-based approach to data synchronization with some additional features that make it very fast to get up and running syncing big complex data files into a db quickly.
 
 ## Quick Start
 
 ```bash
 # Install
+uv install data-sync
+
+# or pip 
 pip install data-sync
 
 # Create configuration by analyzing your CSV

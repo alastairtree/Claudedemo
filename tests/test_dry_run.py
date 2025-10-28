@@ -3,7 +3,14 @@
 import csv
 from pathlib import Path
 
-from data_sync.config import ColumnMapping, DateMapping, Index, IndexColumn, SyncJob
+from data_sync.config import (
+    ColumnMapping,
+    FilenameColumnMapping,
+    FilenameToColumn,
+    Index,
+    IndexColumn,
+    SyncJob,
+)
 from data_sync.database import DatabaseConnection, sync_csv_to_postgres_dry_run
 
 from .db_test_utils import table_exists
@@ -284,11 +291,21 @@ def test_dry_run_with_date_mapping_and_stale_records(db_url: str, tmp_path: Path
         target_table="sales",
         id_mapping=[ColumnMapping("sale_id", "id")],
         columns=[ColumnMapping("amount", "amount")],
-        date_mapping=DateMapping(r"(\d{4}-\d{2}-\d{2})", "sync_date"),
+        filename_to_column=FilenameToColumn(
+            template="sales_[date].csv",
+            columns={
+                "date": FilenameColumnMapping(
+                    name="date",
+                    db_column="sync_date",
+                    data_type="date",
+                    use_to_delete_old_rows=True,
+                )
+            },
+        ),
     )
 
     with DatabaseConnection(db_url) as db:
-        sync_date = job.date_mapping.extract_date_from_filename(csv_file1)
+        sync_date = job.filename_to_column.extract_values_from_filename(csv_file1)
         db.sync_csv_file(csv_file1, job, sync_date)
 
     # Create new CSV with fewer records (simulating deletions)
@@ -301,7 +318,7 @@ def test_dry_run_with_date_mapping_and_stale_records(db_url: str, tmp_path: Path
         # sale_id 3 is missing - should be detected as stale
 
     # Run dry-run
-    sync_date = job.date_mapping.extract_date_from_filename(csv_file2)
+    sync_date = job.filename_to_column.extract_values_from_filename(csv_file2)
     summary = sync_csv_to_postgres_dry_run(csv_file2, job, db_url, sync_date)
 
     # Verify summary

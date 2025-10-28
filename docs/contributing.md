@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for considering contributing to data-sync! This document provides guidelines for contributing.
+Thank you for considering contributing - this document provides guidelines for contributing.
 
 ## Code of Conduct
 
@@ -21,18 +21,20 @@ There are many ways to contribute:
 
 ```bash
 # Fork on GitHub, then clone your fork
-git clone https://github.com/YOUR-USERNAME/data-sync.git
-cd data-sync
+git clone https://github.com/YOUR-USERNAME/AppName.git
+cd AppName
 ```
 
 ### 2. Set Up Development Environment
 
 ```bash
+# install uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
 # Install with development dependencies
 uv sync --all-extras
 
-# Or with pip
-pip install -e ".[dev]"
+./build.sh
 ```
 
 See the [Development Guide](development.md) for detailed setup instructions.
@@ -99,11 +101,8 @@ def my_feature(data):
 ### 3. Run Tests
 
 ```bash
-# Run all tests
-uv run pytest -v
-
-# Run with coverage
-uv run pytest --cov=data_sync
+# Run all tests with coverage
+uv run pytest --cov=src --cov-report=term-missing 
 ```
 
 ### 4. Check Code Quality

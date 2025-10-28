@@ -57,23 +57,19 @@ data-sync/
 │   └── data_sync/
 │       ├── __init__.py               # Package exports
 │       ├── cli.py                    # Main CLI entry point
-│       ├── cli_sync.py               # Sync command
-│       ├── cli_prepare.py            # Prepare command
-│       ├── config.py                 # Configuration classes
+│       ├── cli_COMMANDNAME.py        # CLI commands 
 │       └── database.py               # Database operations
 ├── tests/
 │   ├── __init__.py
 │   ├── conftest.py                   # Pytest configuration
 │   ├── helpers.py                    # Test helpers
-│   ├── test_cli.py                   # CLI tests
-│   ├── test_config.py                # Config parser tests
-│   ├── test_prepare.py               # Prepare command tests
+│   ├── test_FILENAME.py              # test for a file FILENAME   
 │   └── test_database_integration.py  # Integration tests (requires Docker)
 ├── pyproject.toml                    # Project configuration
 ├── mkdocs.yml                        # Documentation configuration
 ├── generate-docs.sh                  # Local docs generation script
-├── README.md                         # Concise readme with link to docs
-└── LICENSE                           # MIT License
+├── build.sh                          # Build script
+└── README.md                         # Concise readme with link to docs
 ```
 
 ## Running Tests
@@ -84,33 +80,17 @@ data-sync/
 # With uv (recommended)
 uv run pytest -v
 
-# OR with direct pytest (if using pip)
+# OR with direct pytest if that is on the path/in venv
 pytest -v
-```
-
-### Unit Tests Only
-
-Run without Docker:
-
-```bash
-uv run pytest tests/test_cli.py tests/test_config.py tests/test_prepare.py -v
-```
-
-### Integration Tests Only
-
-Requires Docker to be running:
-
-```bash
-uv run pytest tests/test_database_integration.py -v
 ```
 
 ### With Coverage
 
 ```bash
-uv run pytest --cov=data_sync --cov-report=html
+uv run pytest --cov=src --cov-report=html
 
-# View coverage report
-open htmlcov/index.html
+# View coverage report by hosting it with a live server
+uv run python -m http.server --directory htmlcov 8000
 ```
 
 ### Specific Test
@@ -153,7 +133,7 @@ uv run ruff check --fix .
 Run MyPy type checker:
 
 ```bash
-uv run mypy src/data_sync
+uv run mypy .
 ```
 
 ### Pre-Commit Checks
@@ -168,7 +148,7 @@ uv run ruff format .
 uv run ruff check --fix .
 
 # Type check
-uv run mypy src/data_sync
+uv run mypy .
 
 # Run tests
 uv run pytest
@@ -181,10 +161,6 @@ This project prioritizes:
 ### High Coverage
 
 Aim for >90% code coverage:
-
-```bash
-uv run pytest --cov=data_sync --cov-report=term-missing
-```
 
 ### Meaningful Tests
 
@@ -238,52 +214,13 @@ def test_filename_to_column_extracts_date_from_filename(self):
     # Assert: Date matches expected value
 ```
 
-## Test Results
-
-Current test suite:
-
-- **30+ tests total**
-- Unit tests: CLI, config parsing, filename detection
-- Integration tests: Real PostgreSQL via testcontainers
-- **100% passing**
-- Tests verify: idempotency, column mapping, filename extraction, stale record cleanup, error handling
-
 ## Adding New Features
 
-### 1. Write Tests First (TDD)
-
-```python
-# tests/test_new_feature.py
-def test_new_feature_works(self):
-    """Test that new feature does X."""
-    # Arrange
-    # Act
-    # Assert
-```
-
-### 2. Implement Feature
-
-```python
-# src/data_sync/module.py
-def new_feature():
-    """Docstring explaining what it does."""
-    pass
-```
-
-### 3. Update Documentation
-
-- Add to relevant docs page
-- Update API reference if needed
-- Add examples
-
-### 4. Run Quality Checks
-
-```bash
-uv run ruff format .
-uv run ruff check --fix .
-uv run mypy src/data_sync
-uv run pytest
-```
+1. Write Tests First (TDD)
+2. Implement Feature
+3. Update Documentation
+4. Run Quality Checks
+5. Create Pull Request
 
 ## Documentation
 
@@ -299,17 +236,6 @@ uv run mkdocs serve
 
 Then open http://127.0.0.1:8000
 
-### Documentation Structure
-
-- `docs/index.md`: Homepage and overview
-- `docs/installation.md`: Installation instructions
-- `docs/quick-start.md`: Quick start guide
-- `docs/configuration.md`: Configuration reference
-- `docs/cli-reference.md`: CLI documentation
-- `docs/features.md`: Feature documentation
-- `docs/api-reference.md`: Python API reference
-- `docs/development.md`: This file
-- `docs/contributing.md`: Contribution guidelines
 
 ### Writing Documentation
 
@@ -350,132 +276,12 @@ Use MkDocs Material features:
 | name   | str  | User name   |
 ```
 
-## Git Workflow
-
-### Branch Naming
-
-- `feature/description` - New features
-- `fix/description` - Bug fixes
-- `docs/description` - Documentation changes
-- `refactor/description` - Code refactoring
-
-### Commit Messages
-
-Follow conventional commits:
-
-```
-feat: add support for CDF files
-fix: handle empty CSV files correctly
-docs: update API reference
-refactor: simplify column mapping logic
-test: add tests for filename extraction
-```
-
-### Pull Request Process
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Run quality checks
-6. Commit with clear messages
-7. Push to your fork
-8. Open a Pull Request
-
 ## CI/CD Pipeline
 
-GitHub Actions runs on every push:
-
-### Jobs
-
-1. **Test** (Python 3.11, 3.12, 3.13, 3.14)
-   - Install dependencies
-   - Run linting (ruff)
-   - Run type checking (mypy)
-   - Run tests with coverage
-   - Upload coverage to Codecov
-
-2. **Build**
-   - Build wheel
-   - Verify installation
-
-3. **Publish** (on release)
-   - Publish to PyPI
-
-4. **Deploy Docs** (on main branch)
-   - Build documentation
-   - Deploy to GitHub Pages
-
-### Running CI Locally
-
-```bash
-# Run the same checks as CI
-uv run ruff format .
-uv run ruff check .
-uv run mypy src/data_sync
-uv run pytest --cov=data_sync
-```
+GitHub Actions runs on main and pull requests.:
 
 ## Release Process
 
 ### Version Bumping
 
-Update version in `pyproject.toml`:
-
-```toml
-[project]
-version = "0.2.0"
-```
-
-### Create Release
-
-1. Update version in `pyproject.toml`
-2. Update `CHANGELOG.md`
-3. Commit changes
-4. Create git tag:
-   ```bash
-   git tag v0.2.0
-   git push origin v0.2.0
-   ```
-5. CI automatically publishes to PyPI
-
-## Troubleshooting
-
-### Integration Tests Failing
-
-**Problem**: Tests fail with "Docker daemon not running"
-
-**Solution**: Start Docker Desktop
-
-### Import Errors
-
-**Problem**: `ModuleNotFoundError: No module named 'data_sync'`
-
-**Solution**: Install in editable mode:
-```bash
-pip install -e .
-```
-
-### Type Checking Errors
-
-**Problem**: MyPy reports errors
-
-**Solution**: Ensure all functions have type hints:
-```python
-def my_function(param: str) -> int:
-    return len(param)
-```
-
-## Resources
-
-- [Python Type Hints](https://docs.python.org/3/library/typing.html)
-- [Pytest Documentation](https://docs.pytest.org/)
-- [Ruff Documentation](https://docs.astral.sh/ruff/)
-- [MkDocs Material](https://squidfunk.github.io/mkdocs-material/)
-- [Testcontainers Python](https://testcontainers-python.readthedocs.io/)
-
-## Next Steps
-
-- [Contributing Guidelines](contributing.md) - How to contribute
-- [API Reference](api-reference.md) - Python API documentation
-- [Roadmap](roadmap.md) - Future plans
+Update version in `pyproject.toml`, push code to main and then tag the release

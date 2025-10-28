@@ -360,7 +360,7 @@ class PostgreSQLBackend:
 
         # Build WHERE clause: WHERE col1 = ? AND col2 = ? AND (id1, id2) NOT IN (...)
         filter_conditions = [
-            sql.SQL("{} = %s").format(sql.Identifier(col)) for col in filter_columns.keys()
+            sql.SQL("{} = %s").format(sql.Identifier(col)) for col in filter_columns
         ]
 
         if len(id_columns) == 1:
@@ -420,7 +420,7 @@ class PostgreSQLBackend:
 
         # Build WHERE clause: WHERE col1 = ? AND col2 = ? AND (id1, id2) NOT IN (...)
         filter_conditions = [
-            sql.SQL("{} = %s").format(sql.Identifier(col)) for col in filter_columns.keys()
+            sql.SQL("{} = %s").format(sql.Identifier(col)) for col in filter_columns
         ]
 
         if len(id_columns) == 1:
