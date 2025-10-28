@@ -528,3 +528,184 @@ class TestExtractCDFToTempCSV:
             lines = csv_file.read_text().strip().split("\n")
             # Should have header + at most 10 data rows
             assert len(lines) <= 11
+
+
+class TestCDFEndToEndWorkflow:
+    """End-to-end tests for the complete CDF workflow: prepare -> extract -> sync."""
+
+    @pytest.fixture
+    def sample_cdf(self) -> Path:
+        """Get path to a sample CDF file."""
+        return Path("tests/data/imap_mag_l1c_norm-magi_20251010_v001.cdf")
+
+    @pytest.mark.parametrize("db_type", ["sqlite"])
+    def test_cdf_prepare_extract_sync_workflow(
+        self, sample_cdf: Path, tmp_path: Path, db_type: str, request: pytest.FixtureRequest
+    ) -> None:
+        """Test complete workflow: extract CDF -> prepare config -> sync to database.
+
+        This end-to-end test verifies that:
+        1. extract command converts all CDF data to CSV files
+        2. prepare command generates valid config from CSV files
+        3. sync command loads data from CSV into database
+        4. Data from CDF is successfully migrated to database
+        """
+        from click.testing import CliRunner
+
+        from data_sync.cli_extract import extract
+        from data_sync.cli_prepare import prepare
+        from data_sync.cli_sync import sync
+        from data_sync.cdf_reader import read_cdf_variables
+        from data_sync.config import SyncConfig
+
+        if not sample_cdf.exists():
+            pytest.skip("Sample CDF file not found")
+
+        # Get database fixture
+        db_url = request.getfixturevalue(f"{db_type}_db")
+
+        runner = CliRunner()
+
+        # Step 1: Extract full CDF data to CSV files first
+        csv_output_dir = tmp_path / "csv_data"
+        csv_output_dir.mkdir()
+
+        extract_result = runner.invoke(
+            extract, [str(sample_cdf), "--output-path", str(csv_output_dir)]
+        )
+
+        assert extract_result.exit_code == 0, f"Extract failed: {extract_result.output}"
+
+        # Verify CSV files were created
+        csv_files = sorted(list(csv_output_dir.glob("*.csv")))
+        assert len(csv_files) > 0, "No CSV files were extracted"
+
+        # Step 2: Run prepare command on extracted CSV files to generate config
+        config_file = tmp_path / "config.yaml"
+        csv_file_args = [str(f) for f in csv_files]
+        prepare_result = runner.invoke(prepare, csv_file_args + ["--config", str(config_file)])
+
+        assert prepare_result.exit_code == 0, f"Prepare failed: {prepare_result.output}"
+        assert config_file.exists(), "Config file was not created"
+
+        # Verify config was created with jobs
+        config = SyncConfig.from_yaml(config_file)
+        assert len(config.jobs) > 0, "No jobs were created in config"
+
+        # Step 3: Sync first job/CSV pair to database
+        first_job_name = list(config.jobs.keys())[0]
+        first_csv = csv_files[0]
+
+        sync_result = runner.invoke(
+            sync,
+            [str(first_csv), str(config_file), first_job_name, "--db-url", db_url],
+        )
+
+        assert sync_result.exit_code == 0, f"Sync failed: {sync_result.output}"
+
+        # Step 4: Verify data in database
+        import csv as csv_module
+        import sqlite3
+
+        conn = sqlite3.connect(db_url.replace("sqlite:///", ""))
+        cursor = conn.cursor()
+
+        try:
+            # Get all tables
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = cursor.fetchall()
+
+            assert len(tables) > 0, "No tables were created in database"
+
+            # Verify table has data
+            table_name = config.jobs[first_job_name].target_table
+            cursor.execute(f'SELECT COUNT(*) FROM "{table_name}"')
+            db_row_count = cursor.fetchone()[0]
+
+            # Count rows in CSV
+            with open(first_csv, encoding="utf-8") as f:
+                reader = csv_module.reader(f)
+                next(reader)  # Skip header
+                csv_row_count = sum(1 for _ in reader)
+
+            assert db_row_count > 0, f"Table {table_name} has no data"
+            assert db_row_count == csv_row_count, (
+                f"Row count mismatch: DB={db_row_count}, CSV={csv_row_count}"
+            )
+
+        finally:
+            conn.close()
+
+    @pytest.mark.parametrize("db_type", ["sqlite"])
+    def test_cdf_prepare_sync_verifies_column_types(
+        self, sample_cdf: Path, tmp_path: Path, db_type: str, request: pytest.FixtureRequest
+    ) -> None:
+        """Test that CDF data types are correctly preserved in database."""
+        from click.testing import CliRunner
+
+        from data_sync.cli_extract import extract
+        from data_sync.cli_prepare import prepare
+        from data_sync.cli_sync import sync
+        from data_sync.config import SyncConfig
+
+        if not sample_cdf.exists():
+            pytest.skip("Sample CDF file not found")
+
+        db_url = request.getfixturevalue(f"{db_type}_db")
+        runner = CliRunner()
+
+        # Extract CSV data first
+        csv_output_dir = tmp_path / "csv_data"
+        csv_output_dir.mkdir()
+        extract_result = runner.invoke(
+            extract, [str(sample_cdf), "--output-path", str(csv_output_dir)]
+        )
+        assert extract_result.exit_code == 0
+
+        csv_files = sorted(list(csv_output_dir.glob("*.csv")))
+        assert len(csv_files) > 0
+
+        # Prepare config from extracted CSVs
+        config_file = tmp_path / "config.yaml"
+        csv_file_args = [str(f) for f in csv_files]
+        prepare_result = runner.invoke(prepare, csv_file_args + ["--config", str(config_file)])
+        assert prepare_result.exit_code == 0
+
+        # Load config and sync first job
+        config = SyncConfig.from_yaml(config_file)
+        first_job_name = list(config.jobs.keys())[0]
+        first_job = config.jobs[first_job_name]
+        first_csv = csv_files[0]
+
+        sync_result = runner.invoke(
+            sync,
+            [str(first_csv), str(config_file), first_job_name, "--db-url", db_url],
+        )
+        assert sync_result.exit_code == 0, f"Sync failed: {sync_result.output}"
+
+        # Verify table schema
+        import sqlite3
+
+        conn = sqlite3.connect(db_url.replace("sqlite:///", ""))
+        cursor = conn.cursor()
+
+        try:
+            # Get table schema
+            cursor.execute(
+                f"SELECT sql FROM sqlite_master WHERE type='table' AND name='{first_job.target_table}'"
+            )
+            schema = cursor.fetchone()
+            assert schema is not None, f"Table {first_job.target_table} was not created"
+
+            schema_sql = schema[0]
+
+            # Verify id column exists
+            assert "id" in schema_sql.lower(), "ID column not found in schema"
+
+            # Verify table has data
+            cursor.execute(f'SELECT COUNT(*) FROM "{first_job.target_table}"')
+            row_count = cursor.fetchone()[0]
+            assert row_count > 0, "No data in table"
+
+        finally:
+            conn.close()

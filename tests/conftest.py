@@ -72,3 +72,29 @@ def db_url(request, tmp_path):
         request.addfinalizer(container.stop)
 
         return container.get_connection_url(driver=None)
+
+
+@pytest.fixture
+def sqlite_db(tmp_path):
+    """Provide SQLite database connection URL."""
+    db_file = tmp_path / "test.db"
+    return f"sqlite:///{db_file}"
+
+
+@pytest.fixture
+def postgres_db(request):
+    """Provide PostgreSQL database connection URL."""
+    skip, reason = should_skip_postgres_tests()
+    if skip:
+        pytest.skip(reason)
+
+    from testcontainers.postgres import PostgresContainer
+
+    # Create container for this test
+    container = PostgresContainer("postgres:16-alpine")
+    container.start()
+
+    # Store container in request so we can clean it up
+    request.addfinalizer(container.stop)
+
+    return container.get_connection_url(driver=None)
