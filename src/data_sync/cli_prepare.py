@@ -1,12 +1,14 @@
 """Prepare command for analyzing CSV files and generating config."""
 
 import re
+import tempfile
 from pathlib import Path
 
 import click
 from rich.console import Console
 from rich.table import Table
 
+from data_sync.cdf_extractor import extract_cdf_to_csv
 from data_sync.config import (
     ColumnMapping,
     FilenameColumnMapping,
@@ -197,6 +199,55 @@ def _create_column_mappings(
     return column_mappings
 
 
+def _extract_cdf_to_temp_csv(cdf_file: Path, temp_dir: Path, max_records: int = 50) -> list[Path]:
+    """Extract CDF file to temporary CSV files.
+
+    Args:
+        cdf_file: Path to the CDF file
+        temp_dir: Temporary directory to store CSV files
+        max_records: Maximum number of records to extract (default: 50)
+
+    Returns:
+        List of paths to temporary CSV files created
+
+    Raises:
+        ValueError: If CDF extraction fails
+    """
+    console.print(f"[cyan]Extracting data from CDF file: {cdf_file.name}[/cyan]")
+    console.print(f"[dim]  Extracting first {max_records} records from each variable...[/dim]")
+
+    try:
+        # Extract with automerge enabled to group variables by record count
+        results = extract_cdf_to_csv(
+            cdf_file_path=cdf_file,
+            output_dir=temp_dir,
+            filename_template=f"{cdf_file.stem}_[VARIABLE_NAME].csv",
+            automerge=True,
+            append=False,
+            variable_names=None,
+            max_records=max_records,
+        )
+
+        if not results:
+            console.print(
+                "[yellow]  No data extracted from CDF file (no suitable variables)[/yellow]"
+            )
+            return []
+
+        # Display extraction summary
+        console.print(f"[green]  Extracted {len(results)} CSV file(s) from CDF[/green]")
+        for result in results:
+            console.print(
+                f"[dim]    - {result.output_file.name}: "
+                f"{result.num_rows} rows, {result.num_columns} columns[/dim]"
+            )
+
+        return [result.output_file for result in results]
+
+    except Exception as e:
+        raise ValueError(f"Failed to extract CDF file: {e}") from e
+
+
 def _display_prepare_results(
     job: SyncJob,
     config: Path,
@@ -285,14 +336,15 @@ def _display_prepare_results(
     help="Overwrite job if it already exists in config",
 )
 def prepare(file_paths: tuple[Path, ...], config: Path, job: str | None, force: bool) -> None:
-    """Prepare config entries by analyzing CSV files.
+    """Prepare config entries by analyzing CSV and CDF files.
 
-    Analyzes CSV files to detect column names and data types, then generates
+    Analyzes CSV and CDF files to detect column names and data types, then generates
     configuration entries. Each CSV file creates one job in the config file.
+    For CDF files, each variable group (grouped by record count) creates one job.
     If job name is not provided, it will be auto-generated from the filename.
 
     Arguments:
-        FILE_PATHS: One or more CSV files to analyze (required)
+        FILE_PATHS: One or more CSV or CDF files to analyze (required)
 
     Options:
         --config, -c: Path to the YAML configuration file (required)
@@ -303,19 +355,38 @@ def prepare(file_paths: tuple[Path, ...], config: Path, job: str | None, force: 
         # Create job config with auto-generated name
         data-sync prepare data.csv --config config.yaml
 
+        # Process a CDF file (creates multiple jobs, one per variable group)
+        data-sync prepare data.cdf --config config.yaml
+
         # Create job config with custom name
         data-sync prepare data.csv --config config.yaml --job my_job
 
         # Process multiple CSV files (auto-generates job names)
         data-sync prepare file1.csv file2.csv file3.csv --config config.yaml
 
-        # Process multiple CSV files with glob pattern
-        data-sync prepare data/*.csv -c config.yaml
+        # Process multiple files with glob pattern (CSV and CDF supported)
+        data-sync prepare data/*.csv data/*.cdf -c config.yaml
 
         # Overwrite existing job config
         data-sync prepare data.csv -c config.yaml -j my_job --force
     """
+    temp_dir: Path | None = None
+    temp_csv_files: list[Path] = []
+
     try:
+        # Separate CSV and CDF files
+        csv_files = [f for f in file_paths if f.suffix.lower() == ".csv"]
+        cdf_files = [f for f in file_paths if f.suffix.lower() == ".cdf"]
+        unsupported_files = [f for f in file_paths if f.suffix.lower() not in [".csv", ".cdf"]]
+
+        # Warn about unsupported files
+        if unsupported_files:
+            for f in unsupported_files:
+                console.print(
+                    f"[yellow]Warning: Unsupported file type '{f.suffix}' for {f.name}. "
+                    "Only .csv and .cdf files are supported.[/yellow]"
+                )
+
         # Validate: if job name provided, only one file allowed
         if job and len(file_paths) > 1:
             console.print(
@@ -324,14 +395,51 @@ def prepare(file_paths: tuple[Path, ...], config: Path, job: str | None, force: 
             )
             raise click.Abort()
 
+        # Validate: if job name provided with CDF file, warn user
+        if job and cdf_files:
+            console.print(
+                "[yellow]Warning:[/yellow] Custom job name will be ignored for CDF files. "
+                "Job names will be auto-generated from variable names."
+            )
+
+        # Extract CDF files to temporary CSV files
+        if cdf_files:
+            console.print(f"\n[bold]Processing {len(cdf_files)} CDF file(s)...[/bold]\n")
+            temp_dir = Path(tempfile.mkdtemp(prefix="data_sync_cdf_"))
+
+            for cdf_file in cdf_files:
+                try:
+                    extracted_csvs = _extract_cdf_to_temp_csv(cdf_file, temp_dir, max_records=50)
+                    temp_csv_files.extend(extracted_csvs)
+                    console.print(f"[green]✓ CDF extraction complete: {cdf_file.name}[/green]\n")
+                except ValueError as e:
+                    console.print(f"[red]Error extracting {cdf_file.name}:[/red] {e}\n")
+                    if len(file_paths) == 1:
+                        raise click.Abort() from e
+                    continue
+
+        # Combine original CSV files with extracted temp CSV files
+        all_csv_files = csv_files + temp_csv_files
+
+        if not all_csv_files:
+            console.print("[yellow]No CSV files to process[/yellow]")
+            return
+
+        # Display summary of files to process
+        if temp_csv_files:
+            console.print(
+                f"\n[bold]Processing {len(all_csv_files)} CSV file(s) "
+                f"({len(csv_files)} original, {len(temp_csv_files)} from CDF)...[/bold]\n"
+            )
+
         # Load or create config once (used for all files)
         sync_config = SyncConfig.from_yaml(config) if config.exists() else SyncConfig(jobs={})
 
         jobs_created = 0
         jobs_updated = 0
 
-        # Process each file
-        for file_path in file_paths:
+        # Process each CSV file
+        for file_path in all_csv_files:
             # Determine job name
             job_name = job or generate_job_name_from_filename(file_path.name)
 
@@ -411,6 +519,8 @@ def prepare(file_paths: tuple[Path, ...], config: Path, job: str | None, force: 
                 console.print(f"[dim]  Jobs created: {jobs_created}[/dim]")
             if jobs_updated > 0:
                 console.print(f"[dim]  Jobs updated: {jobs_updated}[/dim]")
+            if temp_csv_files:
+                console.print(f"[dim]  CSV files extracted from CDF: {len(temp_csv_files)}[/dim]")
         else:
             console.print("\n[yellow]No jobs were created or updated[/yellow]")
 
@@ -423,3 +533,19 @@ def prepare(file_paths: tuple[Path, ...], config: Path, job: str | None, force: 
     except Exception as e:
         console.print(f"[red]Unexpected error:[/red] {e}")
         raise click.Abort() from e
+    finally:
+        # Clean up temporary files
+        if temp_csv_files:
+            console.print("\n[dim]Cleaning up temporary files...[/dim]")
+            for temp_file in temp_csv_files:
+                try:
+                    temp_file.unlink()
+                except Exception as e:
+                    console.print(f"[yellow]Warning: Could not delete {temp_file}: {e}[/yellow]")
+
+        # Clean up temporary directory
+        if temp_dir and temp_dir.exists():
+            try:
+                temp_dir.rmdir()
+            except Exception as e:
+                console.print(f"[yellow]Warning: Could not delete temp directory: {e}[/yellow]")
