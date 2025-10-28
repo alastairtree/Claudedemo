@@ -631,7 +631,8 @@ class SQLiteBackend:
             params = tuple(list(filter_columns.values()) + current_ids_list)
         else:
             # Compound key - use row value constructor
-            id_cols = f"({', '.join(f'"{col}"' for col in id_columns)})"
+            quoted_cols = [f'"{col}"' for col in id_columns]
+            id_cols = f"({', '.join(quoted_cols)})"
             placeholders = ", ".join(f"({', '.join('?' * len(id_columns))})" for _ in current_ids)
             count_query = f"""
                 SELECT COUNT(*) FROM "{table_name}"
@@ -700,7 +701,8 @@ class SQLiteBackend:
             params = tuple(list(filter_columns.values()) + current_ids_list)
         else:
             # Compound key - use row value constructor
-            id_cols = f"({', '.join(f'"{col}"' for col in id_columns)})"
+            quoted_cols = [f'"{col}"' for col in id_columns]
+            id_cols = f"({', '.join(quoted_cols)})"
             placeholders = ", ".join(f"({', '.join('?' * len(id_columns))})" for _ in current_ids)
             count_query = f"""
                 SELECT COUNT(*) FROM "{table_name}"
