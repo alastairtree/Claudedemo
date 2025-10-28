@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 
 class ColumnMapping:
@@ -530,10 +530,10 @@ class SyncConfig:
 
         for job_name, job in self.jobs.items():
             # Build id_mapping dict (supports compound primary keys)
-            id_mapping_dict = {}
+            id_mapping_dict: dict[str, Any] = {}
             for id_col in job.id_mapping:
                 if id_col.data_type or id_col.nullable is not None:
-                    mapping_dict = {"db_column": id_col.db_column}
+                    mapping_dict: dict[str, Any] = {"db_column": id_col.db_column}
                     if id_col.data_type:
                         mapping_dict["type"] = id_col.data_type
                     if id_col.nullable is not None:
@@ -549,7 +549,7 @@ class SyncConfig:
 
             # Add columns if present
             if job.columns:
-                columns_dict = {}
+                columns_dict: dict[str, Any] = {}
                 for col in job.columns:
                     if col.data_type or col.nullable is not None:
                         mapping_dict = {"db_column": col.db_column}
@@ -570,20 +570,20 @@ class SyncConfig:
                 else:
                     ftc_dict["regex"] = job.filename_to_column.regex
 
-                columns_dict = {}
-                for col_name, col in job.filename_to_column.columns.items():
+                ftc_columns_dict: dict[str, Any] = {}
+                for col_name, col_mapping in job.filename_to_column.columns.items():
                     col_dict: dict[str, Any] = {}
-                    if col.db_column != col.name:
-                        col_dict["db_column"] = col.db_column
-                    if col.data_type:
-                        col_dict["type"] = col.data_type
-                    if col.use_to_delete_old_rows:
+                    if col_mapping.db_column != col_mapping.name:
+                        col_dict["db_column"] = col_mapping.db_column
+                    if col_mapping.data_type:
+                        col_dict["type"] = col_mapping.data_type
+                    if col_mapping.use_to_delete_old_rows:
                         col_dict["use_to_delete_old_rows"] = True
 
                     # If col_dict is empty, use None to keep it minimal
-                    columns_dict[col_name] = col_dict if col_dict else None
+                    ftc_columns_dict[col_name] = col_dict if col_dict else None
 
-                ftc_dict["columns"] = columns_dict
+                ftc_dict["columns"] = ftc_columns_dict
                 job_dict["filename_to_column"] = ftc_dict
 
             # Add indexes if present

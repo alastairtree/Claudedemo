@@ -143,7 +143,7 @@ def detect_filename_patterns(filename: str) -> FilenameToColumn | None:
         # YYYYMMDD pattern
         (r"(\d{8})", "date", "YYYYMMDD", "date"),
         # YYYY-MM-DD pattern
-        (r"(\d{4}-\d{2}-\d{2})", "date",  "YYYY-MM-DD", "date"),
+        (r"(\d{4}-\d{2}-\d{2})", "date", "YYYY-MM-DD", "date"),
         # YYYY_MM_DD pattern
         (r"(\d{4}_\d{2}_\d{2})", "date", "YYYY_MM_DD", "date"),
     ]
