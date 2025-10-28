@@ -26,7 +26,6 @@ __version__ = "0.1.0"
 # Export main API functions
 from data_sync.config import (
     ColumnMapping,
-    DateMapping,
     Index,
     IndexColumn,
     SyncConfig,
@@ -45,7 +44,6 @@ __all__ = [
     "SyncConfig",
     "SyncJob",
     "ColumnMapping",
-    "DateMapping",
     "Index",
     "IndexColumn",
     # Database operations

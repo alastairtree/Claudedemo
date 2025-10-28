@@ -1,6 +1,8 @@
 # Welcome to data-sync
 
-Sync CSV and CDF science files into PostgreSQL database using configuration-based jobs. A robust CLI application built with Python 3.11+, demonstrating best practices for maintainable Python software.
+WARNING: This is a demo and all code is entirely untested. Use at your own risk! 
+
+Examines and syncs CSV and CDF science files into PostgreSQL or SQLite databases in batched files using easy to edit configuration files.
 
 [![CI](https://github.com/yourusername/data-sync/workflows/CI/badge.svg)](https://github.com/yourusername/data-sync/actions)
 [![Python Version](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
@@ -8,37 +10,38 @@ Sync CSV and CDF science files into PostgreSQL database using configuration-base
 
 ## Overview
 
-**data-sync** is a powerful command-line tool and Python library for syncing CSV and CDF files to PostgreSQL databases. It provides a declarative, configuration-based approach to data synchronization with advanced features for production use.
+**data-sync** is a command-line tool and Python library for easy syncing CSV and CDF files to a PostgreSQL database. It provides a declarative, configuration-based approach to data synchronization with some additional features that make it very fast to get up and running syncing big complex data files into a db quickly.
 
 ## Key Features
 
+- **Configuration-Based**: Examines your CSV files with the prepare command, and defines sync jobs in YAML with sensible column mappings
+- **Creates missing database schema**: Automatically creates target tables if they don't exist, and updates schema as needed. Never deletes columns.
+- **Column Mapping**: Sync all columns, rename them or only sync a subset
 - **Dual Interface**: Use as a CLI tool or import as a Python library
-- **Configuration-Based**: Define sync jobs in YAML with column mappings
-- **Column Mapping**: Rename columns between CSV and database
-- **Selective Sync**: Choose which columns to sync or sync all
 - **Filename-Based Extraction**: Extract values from filenames (dates, versions, etc.) and store in database columns
 - **Automatic Cleanup**: Delete stale records based on extracted filename values after sync
 - **Compound Primary Keys**: Support for multi-column primary keys
-- **Database Indexes**: Define indexes with custom sort orders
-- **Automatic Index Suggestions**: Prepare command suggests indexes based on column types
+- **Suggests and manages Database Indexes**: Prepare command suggests indexes based on column types and puts them in the config file, you then adjust and deploy to the database with the sync command. Define indexes with custom sort orders
 - **Dry-Run Mode**: Preview all changes without modifying the database
 - **Idempotent Operations**: Safe to run multiple times, uses upsert
-- **Multi-Database Support**: Works with PostgreSQL and SQLite
-- **Modern Python**: Built for Python 3.11+ with full type hints
 - **Rich Output**: Beautiful terminal output with Rich library
 
 ## Quick Example
 
 ```bash
 # Create a configuration file
-data-sync prepare users.csv config.yaml users_sync
+data-sync prepare users_2025-01-01_v01.csv config.yaml users_sync
+
+# preview changes first
+data-sync sync users_2025-01-01_v01.csv config.yaml users_sync --dry-run
 
 # Sync the file to database
 export DATABASE_URL="postgresql://localhost/mydb"
-data-sync sync users.csv config.yaml users_sync
+data-sync sync users_2025-01-01_v01.csv config.yaml users_sync
 
-# Or preview changes first
-data-sync sync users.csv config.yaml users_sync --dry-run
+# Later that day the v2 of the file arrives
+# Sync the new file, old records from v1 are removed automatically, updates are applied to rows that match base on primary key
+data-sync sync users_2025-01-01_v02.csv config.yaml users_sync
 ```
 
 ## Use Cases
@@ -62,6 +65,3 @@ data-sync sync users.csv config.yaml users_sync --dry-run
 
 If you have any questions or run into issues, please [open an issue](https://github.com/yourusername/data-sync/issues) on GitHub.
 
-## License
-
-This project is licensed under the MIT License - see the [License](license.md) page for details.

@@ -90,7 +90,7 @@ class FilenameToColumn:
             self._compiled_regex = re.compile(regex)
 
     def _template_to_regex(self, template: str) -> re.Pattern:
-        """Convert template string to regex pattern.
+        r"""Convert template string to regex pattern.
 
         Args:
             template: Template string with [column_name] placeholders
