@@ -26,11 +26,12 @@ def format_file_size(size_bytes: int) -> str:
     Returns:
         Formatted file size string
     """
+    size: float = float(size_bytes)
     for unit in ["B", "KB", "MB", "GB"]:
-        if size_bytes < 1024.0:
-            return f"{size_bytes:.1f} {unit}"
-        size_bytes /= 1024.0
-    return f"{size_bytes:.1f} TB"
+        if size < 1024.0:
+            return f"{size:.1f} {unit}"
+        size /= 1024.0
+    return f"{size:.1f} TB"
 
 
 def inspect_csv(file_path: Path, num_records: int) -> None:
@@ -129,7 +130,7 @@ def _format_data_value(value: object, is_numeric: bool = False) -> str:
     """
     if is_numeric:
         try:
-            return f"{float(value):.4g}"
+            return f"{float(str(value)):.4g}"
         except (ValueError, TypeError):
             return str(value)
     return str(value)
@@ -146,7 +147,7 @@ def inspect_cdf(file_path: Path, num_records: int) -> None:
         click.ClickException: If the file cannot be read or parsed
     """
     try:
-        import cdflib
+        import cdflib  # type: ignore[import-untyped]
     except ImportError:
         console.print(
             "[red]Error: cdflib is not installed. Install it with: pip install cdflib[/red]"

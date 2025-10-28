@@ -166,7 +166,7 @@ def read_cdf_variables(file_path: Path) -> list[CDFVariable]:
         Exception: If the file cannot be read
     """
     try:
-        import cdflib
+        import cdflib  # type: ignore[import-untyped]
     except ImportError as e:
         raise ImportError(
             "cdflib is required for CDF operations. Install with: pip install cdflib"

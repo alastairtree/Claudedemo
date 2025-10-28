@@ -892,6 +892,8 @@ class DatabaseConnection:
         Returns:
             Dictionary mapping column names to SQL type definitions (including NULL/NOT NULL)
         """
+        if not self.backend:
+            raise RuntimeError("Database connection not established")
         columns_def = {}
         for col_mapping in sync_columns:
             sql_type = self.backend.map_data_type(col_mapping.data_type)
