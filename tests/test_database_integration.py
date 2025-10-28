@@ -1,43 +1,13 @@
 """Integration tests for database synchronization with SQLite and PostgreSQL."""
 
 import csv
-import sqlite3
 from pathlib import Path
 
 import pytest
 
 from data_sync.config import SyncConfig
 from data_sync.database import DatabaseConnection, sync_csv_to_postgres
-
-from .db_test_utils import execute_query, get_table_columns
-
-
-def get_table_indexes(db_url: str, table_name: str) -> set[str]:
-    """Get index names from a table for any database type."""
-    if db_url.startswith("sqlite"):
-        db_path = db_url.replace("sqlite:///", "")
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name=?", (table_name,)
-        )
-        indexes = {row[0].lower() for row in cursor.fetchall()}
-        cursor.close()
-        conn.close()
-        return indexes
-    else:
-        import psycopg
-
-        with psycopg.connect(db_url) as conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT indexname
-                FROM pg_indexes
-                WHERE tablename = %s
-            """,
-                (table_name,),
-            )
-            return {row[0].lower() for row in cur.fetchall()}
+from tests.db_test_utils import execute_query, get_table_columns, get_table_indexes
 
 
 class TestDatabaseIntegration:
@@ -240,8 +210,15 @@ jobs:
 
         rows = execute_query(db_url, "SELECT id, amount, sync_date FROM sales ORDER BY id")
         assert len(rows) == 2
-        assert rows[0] == ("1", "100", "2024-01-15")
-        assert rows[1] == ("2", "200", "2024-01-15")
+        # For PostgreSQL: date becomes date object, for SQLite: stays as string
+        if db_url.startswith("sqlite"):
+            assert rows[0] == ("1", "100", "2024-01-15")
+            assert rows[1] == ("2", "200", "2024-01-15")
+        else:
+            from datetime import date
+
+            assert rows[0] == ("1", "100", date(2024, 1, 15))
+            assert rows[1] == ("2", "200", date(2024, 1, 15))
 
     def test_delete_stale_records(self, tmp_path: Path, db_url: str) -> None:
         """Test that stale records are deleted after sync with filename_to_column."""
@@ -761,8 +738,15 @@ jobs:
             "SELECT id, measurement, mission_name, sensor_type, observation_date, file_version FROM observations ORDER BY id",
         )
         assert len(rows) == 2
-        assert rows[0] == ("1", "42.5", "imap", "primary", "20240115", "002")
-        assert rows[1] == ("2", "38.2", "imap", "primary", "20240115", "002")
+        # For PostgreSQL: date becomes date object, for SQLite: stays as string
+        if db_url.startswith("sqlite"):
+            assert rows[0] == ("1", "42.5", "imap", "primary", "20240115", "002")
+            assert rows[1] == ("2", "38.2", "imap", "primary", "20240115", "002")
+        else:
+            from datetime import date
+
+            assert rows[0] == ("1", "42.5", "imap", "primary", date(2024, 1, 15), "002")
+            assert rows[1] == ("2", "38.2", "imap", "primary", date(2024, 1, 15), "002")
 
     def test_filename_to_column_regex_syntax(self, tmp_path: Path, db_url: str) -> None:
         """Test extracting values from filename with regex syntax."""
@@ -807,9 +791,18 @@ jobs:
             db_url, "SELECT id, value, record_date, data_version FROM versioned_records"
         )
         assert len(rows) == 1
-        assert rows[0] == ("1", "test", "20240315", "1")
+        # For SQLite: date stays as string, version becomes integer
+        # For PostgreSQL: date becomes date object, version becomes integer
+        if db_url.startswith("sqlite"):
+            assert rows[0] == ("1", "test", "20240315", 1)
+        else:
+            from datetime import date
 
-    def test_filename_to_column_compound_key_deletion(self, tmp_path: Path, db_url: str) -> None:
+            assert rows[0] == ("1", "test", date(2024, 3, 15), 1)
+
+    def test_filename_to_column_compound_key_can_update_filename_columns_in_a_later_file_meaning_stale_detection_does_not_locate_them(
+        self, tmp_path: Path, db_url: str
+    ) -> None:
         """Test stale record deletion using compound key from filename values."""
         config_file = tmp_path / "config.yaml"
         config_file.write_text(r"""
@@ -855,14 +848,16 @@ jobs:
             writer = csv.DictWriter(f, fieldnames=["obs_id", "value"])
             writer.writeheader()
             writer.writerow({"obs_id": "1", "value": "A1_day2"})
-            writer.writerow({"obs_id": "2", "value": "A2_day2"})
+            writer.writerow({"obs_id": "4", "value": "A2_day2"})
 
         filename_values_2 = job.filename_to_column.extract_values_from_filename(csv_file_2)
         sync_csv_to_postgres(csv_file_2, job, db_url, filename_values_2)
 
-        # Verify we have 3 records total (IDs 1,2 updated to day 2, ID 3 still on day 1)
+        # Verify we have 4 records total:
+        # - 2 for missionA + 2024-01-15 (IDs 2,3 plus the now updated ID 1)
+        # - 2 for missionA + 2024-01-16 (IDs 4 and ID 1 again but with updated value)
         total_count = execute_query(db_url, "SELECT COUNT(*) FROM mission_records")
-        assert total_count[0][0] == 3
+        assert total_count[0][0] == 4
 
         # Re-sync first file with only 2 records (ID 3 removed)
         with open(csv_file_1, "w", newline="", encoding="utf-8") as f:
@@ -874,20 +869,108 @@ jobs:
         sync_csv_to_postgres(csv_file_1, job, db_url, filename_values_1)
 
         # Verify: Records for mission A + date 2024-01-15 only have IDs 1,2
-        # Mission A + date 2024-01-16 should still have IDs 1,2
+        # Mission A + date 2024-01-16 should only have ID 4
         day1_count = execute_query(
             db_url,
             "SELECT COUNT(*) FROM mission_records WHERE mission_name = %s AND observation_date = %s",
             ("missionA", "2024-01-15"),
         )
-        assert day1_count[0][0] == 2  # ID 3 was deleted for this combination
+        assert (
+            day1_count[0][0] == 2
+        )  # ID 3 removed, id 1 updated to the second file and then back to the first
 
         day2_count = execute_query(
             db_url,
             "SELECT COUNT(*) FROM mission_records WHERE mission_name = %s AND observation_date = %s",
             ("missionA", "2024-01-16"),
         )
-        assert day2_count[0][0] == 2  # Unchanged
+        assert day2_count[0][0] == 1  # just id 4, id 1 was updated back to day 1
 
         total_after = execute_query(db_url, "SELECT COUNT(*) FROM mission_records")
-        assert total_after[0][0] == 4  # 2 from day 1, 2 from day 2
+        assert total_after[0][0] == 3  # 2 from day 1, 1 from day 2
+
+    def test_filename_to_column_compound_key_will_remove_updated_stale_records(
+        self, tmp_path: Path, db_url: str
+    ) -> None:
+        """Test stale record deletion using compound key from filename values."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(r"""
+jobs:
+  mission_data:
+    target_table: mission_records
+    id_mapping:
+      obs_id: id
+    filename_to_column:
+      template: "[mission]_[date]_v[version].csv"
+      columns:
+        mission:
+          db_column: mission_name
+          type: varchar(20)
+          use_to_delete_old_rows: true
+        date:
+          db_column: observation_date
+          type: date
+          use_to_delete_old_rows: true
+        version:
+          db_column: file_version
+          type: varchar(10)
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("mission_data")
+
+        # First sync: mission A, date 2024-01-15, version v1
+        csv_file_1 = tmp_path / "missionA_2024-01-15_v1.csv"
+        with open(csv_file_1, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["obs_id", "value"])
+            writer.writeheader()
+            writer.writerow({"obs_id": "1", "value": "A1"})
+            writer.writerow({"obs_id": "2", "value": "A2"})
+            writer.writerow({"obs_id": "3", "value": "A3"})
+
+        filename_values_1 = job.filename_to_column.extract_values_from_filename(csv_file_1)
+        sync_csv_to_postgres(csv_file_1, job, db_url, filename_values_1)
+
+        # Second sync: mission A, different date, version v1
+        csv_file_2 = tmp_path / "missionA_2024-01-16_v1.csv"
+        with open(csv_file_2, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["obs_id", "value"])
+            writer.writeheader()
+            writer.writerow({"obs_id": "1", "value": "A1"})
+            writer.writerow({"obs_id": "2", "value": "A2"})
+            writer.writerow({"obs_id": "3", "value": "A3_day3"})
+            writer.writerow({"obs_id": "4", "value": "A2_day2"})
+
+        filename_values_2 = job.filename_to_column.extract_values_from_filename(csv_file_2)
+        sync_csv_to_postgres(csv_file_2, job, db_url, filename_values_2)
+
+        # Verify we have 4 records total:
+        total_count = execute_query(db_url, "SELECT COUNT(*) FROM mission_records")
+        assert total_count[0][0] == 4
+
+        # 3rd sync - Re-sync second file with only 3 records (ID 2 removed) and an update to ID 4
+        with open(csv_file_2, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["obs_id", "value"])
+            writer.writeheader()
+            writer.writerow({"obs_id": "1", "value": "A1"})
+            writer.writerow({"obs_id": "3", "value": "A3_day3"})
+            writer.writerow({"obs_id": "4", "value": "A2_day2_updated"})
+        sync_csv_to_postgres(csv_file_2, job, db_url, filename_values_2)
+
+        # Verify: Records for mission A + date 2024-01-15 not there any more as were updated to date 2024-01-16
+        day1_count = execute_query(
+            db_url,
+            "SELECT COUNT(*) FROM mission_records WHERE mission_name = %s AND observation_date = %s",
+            ("missionA", "2024-01-15"),
+        )
+        assert day1_count[0][0] == 0  # all updated in day2
+
+        day2_count = execute_query(
+            db_url,
+            "SELECT COUNT(*) FROM mission_records WHERE mission_name = %s AND observation_date = %s",
+            ("missionA", "2024-01-16"),
+        )
+        assert day2_count[0][0] == 3  # IDs 1,3,4
+
+        total_after = execute_query(db_url, "SELECT COUNT(*) FROM mission_records")
+        assert total_after[0][0] == 3  # IDs 1,3,4

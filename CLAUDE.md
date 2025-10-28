@@ -15,14 +15,20 @@ pip install -e ".[dev]"
 
 ### Testing
 ```bash
+# Start with unit tests and sqlite only as these are fast to run (and no Docker required)
+uv run pytest tests -k "not [postgres]" -v
+
 # Run all tests
 uv run pytest -v
 
-# Run tests with coverage
+# Run all tests with coverage
 uv run pytest --cov=src --cov-report=term-missing
 
-# Unit tests only (no Docker required)
-uv run pytest tests/test_cli.py tests/test_config.py tests/test_prepare.py -v
+# database integration tests for sqlite only so VERY FAST (and no Docker required)
+uv run pytest tests -k database -k "[sqlite]" -v
+
+# database integration tests for postgres only (slow) (Docker required)
+uv run pytest tests -k database -k "[postgres]" -v
 
 # Integration tests only (requires Docker)
 uv run pytest tests/test_database_integration.py -v
@@ -40,10 +46,10 @@ uv run ruff format .
 uv run ruff check --fix .
 
 # Type checking
-uv run mypy src/data_sync
+uv run mypy src
 
 # Run all quality checks
-uv run ruff format . && uv run ruff check --fix . && uv run mypy src/data_sync && uv run pytest
+uv run ruff format . && uv run ruff check --fix . && uv run mypy src && uv run pytest
 ```
 
 ### Documentation

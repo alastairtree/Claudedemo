@@ -292,7 +292,7 @@ def test_dry_run_with_date_mapping_and_stale_records(db_url: str, tmp_path: Path
         id_mapping=[ColumnMapping("sale_id", "id")],
         columns=[ColumnMapping("amount", "amount")],
         filename_to_column=FilenameToColumn(
-            template="sales_[date].csv",
+            regex=r"sales_(?P<date>[0-9-]+).*\.csv",
             columns={
                 "date": FilenameColumnMapping(
                     name="date",
@@ -305,11 +305,11 @@ def test_dry_run_with_date_mapping_and_stale_records(db_url: str, tmp_path: Path
     )
 
     with DatabaseConnection(db_url) as db:
-        sync_date = job.filename_to_column.extract_values_from_filename(csv_file1)
-        db.sync_csv_file(csv_file1, job, sync_date)
+        filename_values = job.filename_to_column.extract_values_from_filename(csv_file1)
+        db.sync_csv_file(csv_file1, job, filename_values)
 
     # Create new CSV with fewer records (simulating deletions)
-    csv_file2 = tmp_path / "sales_2024-01-15_updated.csv"
+    csv_file2 = tmp_path / "sales_2024-01-15_v2.csv"
     with open(csv_file2, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=["sale_id", "amount"])
         writer.writeheader()
@@ -318,8 +318,8 @@ def test_dry_run_with_date_mapping_and_stale_records(db_url: str, tmp_path: Path
         # sale_id 3 is missing - should be detected as stale
 
     # Run dry-run
-    sync_date = job.filename_to_column.extract_values_from_filename(csv_file2)
-    summary = sync_csv_to_postgres_dry_run(csv_file2, job, db_url, sync_date)
+    filename_values2 = job.filename_to_column.extract_values_from_filename(csv_file2)
+    summary = sync_csv_to_postgres_dry_run(csv_file2, job, db_url, filename_values2)
 
     # Verify summary
     assert summary.table_name == "sales"
@@ -438,7 +438,7 @@ def test_dry_run_compound_key_with_date_mapping_matches_sync(db_url: str, tmp_pa
             }
         )
 
-    # Create a sync job with compound primary key and date mapping
+    # Create a sync job with compound primary key and filename to column mapping
     job = SyncJob(
         name="inventory_job",
         target_table="inventory",
@@ -451,25 +451,37 @@ def test_dry_run_compound_key_with_date_mapping_matches_sync(db_url: str, tmp_pa
             ColumnMapping("quantity", "quantity", "int"),
             ColumnMapping("price", "price", "float"),
         ],
-        date_mapping=DateMapping(r"(\d{4}-\d{2}-\d{2})", "sync_date"),
+        filename_to_column=FilenameToColumn(
+            columns={
+                "date": FilenameColumnMapping(
+                    name="date",
+                    db_column="sync_date",
+                    data_type="date",
+                    use_to_delete_old_rows=True,
+                )
+            },
+            regex=r"inventory_(?P<date>[0-9-]+).*\.csv",
+        ),
     )
 
-    sync_date = job.date_mapping.extract_date_from_filename(csv_file1)
+    # Extract date from filename
+    filename_values = job.filename_to_column.extract_values_from_filename(csv_file1)
 
     # Run dry-run BEFORE actual sync
-    dry_run_summary_initial = sync_csv_to_postgres_dry_run(csv_file1, job, db_url, sync_date)
+    dry_run_summary_initial = sync_csv_to_postgres_dry_run(csv_file1, job, db_url, filename_values)
 
     # Perform actual sync and capture results
     with DatabaseConnection(db_url) as db:
-        rows_synced_initial = db.sync_csv_file(csv_file1, job, sync_date)
+        rows_synced_initial = db.sync_csv_file(csv_file1, job, filename_values)
 
     # Verify dry-run predicted the correct number of rows for initial sync
     assert dry_run_summary_initial.rows_to_sync == rows_synced_initial
     assert dry_run_summary_initial.rows_to_sync == 7
     assert dry_run_summary_initial.rows_to_delete == 0  # No deletions on first sync
 
-    # Create second CSV with updates and deletions (same date)
-    csv_file2 = tmp_path / "inventory_2024-01-15_updated.csv"
+    # Create second CSV with updates and deletions (same date but different filename)
+    # We need a different filename to avoid overwriting, but with same date pattern
+    csv_file2 = tmp_path / "inventory_2024-01-15_v2.csv"
     with open(csv_file2, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(
             f, fieldnames=["store_id", "product_id", "category", "quantity", "price"]
@@ -524,12 +536,15 @@ def test_dry_run_compound_key_with_date_mapping_matches_sync(db_url: str, tmp_pa
             }  # New store/product
         )
 
+    # Extract date from second filename
+    filename_values2 = job.filename_to_column.extract_values_from_filename(csv_file2)
+
     # Run dry-run BEFORE actual sync
-    dry_run_summary_update = sync_csv_to_postgres_dry_run(csv_file2, job, db_url, sync_date)
+    dry_run_summary_update = sync_csv_to_postgres_dry_run(csv_file2, job, db_url, filename_values2)
 
     # Perform actual sync
     with DatabaseConnection(db_url) as db:
-        rows_synced_update = db.sync_csv_file(csv_file2, job, sync_date)
+        rows_synced_update = db.sync_csv_file(csv_file2, job, filename_values2)
 
     # Verify dry-run predicted correct counts for update
     assert dry_run_summary_update.rows_to_sync == rows_synced_update
