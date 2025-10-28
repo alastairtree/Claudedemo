@@ -141,28 +141,28 @@ def detect_filename_patterns(filename: str) -> FilenameToColumn | None:
     # Define date patterns to detect
     date_patterns = [
         # YYYYMMDD pattern
-        (r"(\d{8})", "date", r"(\d{8})", "YYYYMMDD", "date"),
+        (r"(\d{8})", "date", "YYYYMMDD", "date"),
         # YYYY-MM-DD pattern
-        (r"(\d{4}-\d{2}-\d{2})", "date", r"(\d{4}-\d{2}-\d{2})", "YYYY-MM-DD", "date"),
+        (r"(\d{4}-\d{2}-\d{2})", "date",  "YYYY-MM-DD", "date"),
         # YYYY_MM_DD pattern
-        (r"(\d{4}_\d{2}_\d{2})", "date", r"(\d{4}_\d{2}_\d{2})", "YYYY_MM_DD", "date"),
+        (r"(\d{4}_\d{2}_\d{2})", "date", "YYYY_MM_DD", "date"),
     ]
 
     # Try to find a date pattern
-    for pattern, col_name, regex_pattern, pattern_desc, col_type in date_patterns:
+    for pattern, _col_name, _pattern_desc, _col_type in date_patterns:
         match = re.search(pattern, name)
         if match:
             # Build a template from the filename
             # Replace the matched pattern with [date] placeholder
-            template = name[: match.start()] + "[date]" + name[match.end() :]
+            template = name[: match.start()] + f"[{_col_name}]" + name[match.end() :]
             template += Path(filename).suffix  # Add extension back
 
             # Create the FilenameToColumn mapping
             columns = {
-                "date": FilenameColumnMapping(
-                    name="date",
+                _col_name: FilenameColumnMapping(
+                    name=_col_name,
                     db_column="file_date",
-                    data_type="date",
+                    data_type=_col_type,
                     use_to_delete_old_rows=True,
                 )
             }

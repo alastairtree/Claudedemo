@@ -93,3 +93,31 @@ def table_exists(db_url: str, table_name: str) -> bool:
     finally:
         cursor.close()
         conn.close()
+
+
+def get_table_indexes(db_url: str, table_name: str) -> set[str]:
+    """Get index names from a table for any database type."""
+    if db_url.startswith("sqlite"):
+        db_path = db_url.replace("sqlite:///", "")
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name=?", (table_name,)
+        )
+        indexes = {row[0].lower() for row in cursor.fetchall()}
+        cursor.close()
+        conn.close()
+        return indexes
+    else:
+        import psycopg
+
+        with psycopg.connect(db_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT indexname
+                FROM pg_indexes
+                WHERE tablename = %s
+            """,
+                (table_name,),
+            )
+            return {row[0].lower() for row in cur.fetchall()}
