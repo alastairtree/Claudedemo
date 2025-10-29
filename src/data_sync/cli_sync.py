@@ -59,8 +59,8 @@ def _extract_cdf_and_find_csv(
 
 
 @click.command()
-@click.argument("file_path", type=click.Path(exists=True, path_type=Path), required=True)
-@click.argument("config", type=click.Path(exists=True, path_type=Path), required=True)
+@click.argument("file_path", type=click.Path(exists=True, path_type=Path), required=True)  # type: ignore[type-var]
+@click.argument("config", type=click.Path(exists=True, path_type=Path), required=True)  # type: ignore[type-var]
 @click.argument("job", type=str, required=True)
 @click.option(
     "--db-url",

@@ -332,15 +332,15 @@ def inspect_cdf(file_path: Path, num_records: int) -> None:
 
 
 @click.command()
-@click.argument("files", nargs=-1, type=click.Path(exists=True, path_type=Path), required=True)
+@click.argument("files", nargs=-1, type=click.Path(exists=True, path_type=Path), required=True)  # type: ignore[type-var]
 @click.option(
-    "--records",
+    "--max-records",
     "-n",
     type=int,
     default=10,
     help="Number of sample records to display (default: 10)",
 )
-def inspect(files: tuple[Path, ...], records: int) -> None:
+def inspect(files: tuple[Path, ...], max_records: int) -> None:
     """Inspect CSV or CDF files and display summary information.
 
     Displays file metadata, structure, and sample data for each file.
@@ -354,7 +354,7 @@ def inspect(files: tuple[Path, ...], records: int) -> None:
         data-sync inspect data.csv
 
         # Inspect multiple files with custom record count
-        data-sync inspect file1.csv file2.cdf --records 20
+        data-sync inspect file1.csv file2.cdf --max-records 20
 
         # Inspect all CSV files in a directory
         data-sync inspect data/*.csv
@@ -363,9 +363,9 @@ def inspect(files: tuple[Path, ...], records: int) -> None:
         for file_path in files:
             # Determine file type and inspect
             if file_path.suffix.lower() == ".csv":
-                inspect_csv(file_path, records)
+                inspect_csv(file_path, max_records)
             elif file_path.suffix.lower() == ".cdf":
-                inspect_cdf(file_path, records)
+                inspect_cdf(file_path, max_records)
             else:
                 console.print(
                     f"\n[yellow]Warning: Unsupported file type '{file_path.suffix}' "
