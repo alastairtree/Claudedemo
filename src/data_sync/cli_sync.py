@@ -1,6 +1,5 @@
 """Sync command for syncing CSV and CDF files to database."""
 
-import os
 import tempfile
 from pathlib import Path
 
@@ -14,12 +13,15 @@ from data_sync.database import sync_csv_to_postgres, sync_csv_to_postgres_dry_ru
 console = Console()
 
 
-def _extract_cdf_and_find_csv(cdf_file: Path, temp_dir: Path) -> list[Path]:
+def _extract_cdf_and_find_csv(
+    cdf_file: Path, temp_dir: Path, max_records: int | None = None
+) -> list[Path]:
     """Extract CDF file to temporary CSV files.
 
     Args:
         cdf_file: Path to CDF file
         temp_dir: Temporary directory for CSV extraction
+        max_records: Maximum number of records to extract per variable (None = all)
 
     Returns:
         List of extracted CSV file paths
@@ -29,20 +31,11 @@ def _extract_cdf_and_find_csv(cdf_file: Path, temp_dir: Path) -> list[Path]:
     """
     console.print("[dim]  Extracting CDF data to temporary CSV files...[/dim]")
 
-    try:
-        # Check for test environment variable to limit records (for testing only)
-        max_records = None
-        test_max_records = os.environ.get("DATA_SYNC_TEST_MAX_RECORDS")
-        if test_max_records:
-            try:
-                max_records = int(test_max_records)
-                console.print(
-                    f"[dim]  Test mode: limiting extraction to {max_records} records[/dim]"
-                )
-            except ValueError:
-                pass  # Ignore invalid values
+    if max_records is not None:
+        console.print(f"[dim]  Max records per variable: {max_records:,}[/dim]")
 
-        # Extract all data from CDF (or limited records in test mode)
+    try:
+        # Extract data from CDF
         results = extract_cdf_to_csv(
             cdf_file_path=cdf_file,
             output_dir=temp_dir,
@@ -81,7 +74,15 @@ def _extract_cdf_and_find_csv(cdf_file: Path, temp_dir: Path) -> list[Path]:
     default=False,
     help="Simulate the sync without making any database changes",
 )
-def sync(file_path: Path, config: Path, job: str, db_url: str, dry_run: bool) -> None:
+@click.option(
+    "--max-records",
+    type=int,
+    default=None,
+    help="Maximum number of records to extract per variable from CDF files (default: extract all records)",
+)
+def sync(
+    file_path: Path, config: Path, job: str, db_url: str, dry_run: bool, max_records: int | None
+) -> None:
     """Sync a CSV or CDF file to the database using a configuration.
 
     Supports both CSV and CDF file formats. For CDF files, data is automatically
@@ -99,12 +100,18 @@ def sync(file_path: Path, config: Path, job: str, db_url: str, dry_run: bool) ->
         # Sync a CDF file (extracts to CSV automatically)
         data-sync sync data.cdf config.yaml my_job --db-url postgresql://localhost/mydb
 
+        # Sync CDF with limited records (useful for testing)
+        data-sync sync data.cdf config.yaml my_job --db-url postgresql://localhost/mydb --max-records 200
+
         # Using environment variable
         export DATABASE_URL=postgresql://localhost/mydb
         data-sync sync data.csv config.yaml my_job
 
         # Dry-run mode to preview changes
         data-sync sync data.csv config.yaml my_job --dry-run
+
+        # Dry-run with limited records from CDF
+        data-sync sync data.cdf config.yaml my_job --dry-run --max-records 100
     """
     temp_dir: Path | None = None
     temp_csv_files: list[Path] = []
@@ -130,7 +137,7 @@ def sync(file_path: Path, config: Path, job: str, db_url: str, dry_run: bool) ->
             temp_dir = Path(tempfile.mkdtemp(prefix="data_sync_cdf_"))
 
             # Extract CDF to temporary CSV files
-            temp_csv_files = _extract_cdf_and_find_csv(file_path, temp_dir)
+            temp_csv_files = _extract_cdf_and_find_csv(file_path, temp_dir, max_records)
 
             # Find the CSV file that matches this job's configuration
             # Try each extracted CSV to see which one works with this job
