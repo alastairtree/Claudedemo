@@ -1,6 +1,5 @@
 """End-to-end tests for CDF workflow (2-step: prepare CDF → sync CDF)."""
 
-import os
 from pathlib import Path
 
 import pytest
@@ -43,14 +42,17 @@ class TestCDFEndToEndWorkflow:
         first_job_name = list(config.jobs.keys())[0]
 
         # Step 2: Sync CDF to database (with 200 row limit for speed)
-        # Set environment variable to limit extraction to 200 rows for testing
-        env = os.environ.copy()
-        env["DATA_SYNC_TEST_MAX_RECORDS"] = "200"
-
         sync_result = runner.invoke(
             sync,
-            [str(sample_cdf), str(config_file), first_job_name, "--db-url", db_url],
-            env=env,
+            [
+                str(sample_cdf),
+                str(config_file),
+                first_job_name,
+                "--db-url",
+                db_url,
+                "--max-records",
+                "200",
+            ],
         )
         assert sync_result.exit_code == 0, f"Sync failed: {sync_result.output}"
 
@@ -112,9 +114,6 @@ class TestCDFEndToEndWorkflow:
         first_job_name = list(config.jobs.keys())[0]
 
         # Run sync with dry-run flag (limit to 200 rows for speed)
-        env = os.environ.copy()
-        env["DATA_SYNC_TEST_MAX_RECORDS"] = "200"
-
         sync_result = runner.invoke(
             sync,
             [
@@ -124,8 +123,9 @@ class TestCDFEndToEndWorkflow:
                 "--db-url",
                 db_url,
                 "--dry-run",
+                "--max-records",
+                "200",
             ],
-            env=env,
         )
 
         assert sync_result.exit_code == 0, f"Dry-run sync failed: {sync_result.output}"
