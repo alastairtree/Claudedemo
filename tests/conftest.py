@@ -123,7 +123,6 @@ def db_url(request, tmp_path):
         if skip:
             pytest.skip(reason)
 
-
         # Try to get the session-scoped container
         # If it doesn't exist yet, pytest will create it
         try:
