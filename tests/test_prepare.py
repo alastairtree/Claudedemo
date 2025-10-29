@@ -555,7 +555,6 @@ class TestCDFEndToEndWorkflow:
         from data_sync.cli_extract import extract
         from data_sync.cli_prepare import prepare
         from data_sync.cli_sync import sync
-        from data_sync.cdf_reader import read_cdf_variables
         from data_sync.config import SyncConfig
 
         if not sample_cdf.exists():
@@ -577,7 +576,7 @@ class TestCDFEndToEndWorkflow:
         assert extract_result.exit_code == 0, f"Extract failed: {extract_result.output}"
 
         # Verify CSV files were created
-        csv_files = sorted(list(csv_output_dir.glob("*.csv")))
+        csv_files = sorted(csv_output_dir.glob("*.csv"))
         assert len(csv_files) > 0, "No CSV files were extracted"
 
         # Step 2: Run prepare command on extracted CSV files to generate config
@@ -662,7 +661,7 @@ class TestCDFEndToEndWorkflow:
         )
         assert extract_result.exit_code == 0
 
-        csv_files = sorted(list(csv_output_dir.glob("*.csv")))
+        csv_files = sorted(csv_output_dir.glob("*.csv"))
         assert len(csv_files) > 0
 
         # Prepare config from extracted CSVs
