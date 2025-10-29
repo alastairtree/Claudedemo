@@ -1,6 +1,6 @@
 # data-sync
 
-WARNING: This is a demo and all code is entirely untested. Use at your own risk! 
+WARNING: This is a demo and all code is entirely untested. Use at your own risk!
 
 Examines and syncs CSV and CDF science files into PostgreSQL or SQLite databases in batched files using easy to edit configuration files.
 
@@ -10,19 +10,21 @@ Examines and syncs CSV and CDF science files into PostgreSQL or SQLite databases
 
 ## Overview
 
-**data-sync** is a command-line tool and Python library for easy syncing CSV and CDF files to a PostgreSQL database. It provides a declarative, configuration-based approach to data synchronization with some additional features that make it very fast to get up and running syncing big complex data files into a db quickly.
+**data-sync** is a command-line tool and Python library for easy syncing CSV and CDF (Common Data Format) files to a PostgreSQL database. It provides a declarative, configuration-based approach to data synchronization with some additional features that make it very fast to get up and running syncing big complex data files into a db quickly.
 
 ## Quick Start
+
+### CSV Files
 
 ```bash
 # Install
 uv install data-sync
 
-# or pip 
+# or pip
 pip install data-sync
 
 # Create configuration by analyzing your CSV
-data-sync prepare users.csv config.yaml users_sync
+data-sync prepare users.csv --config config.yaml
 
 # Preview changes (dry-run)
 export DATABASE_URL="postgresql://localhost/mydb"
@@ -32,14 +34,33 @@ data-sync sync users.csv config.yaml users_sync --dry-run
 data-sync sync users.csv config.yaml users_sync
 ```
 
+### CDF (Science Data) Files
+
+```bash
+# Inspect CDF file contents
+data-sync inspect data.cdf --max-records 10
+
+# Extract CDF to CSV (optional, for preview)
+data-sync extract data.cdf --output-path ./output --max-records 100
+
+# Create configuration from CDF file
+data-sync prepare data.cdf --config config.yaml
+
+# Sync CDF directly to database (automatic extraction)
+data-sync sync data.cdf config.yaml vectors --db-url postgresql://localhost/mydb
+```
+
 ## Key Features
 
+- **CSV & CDF Support**: Work with both CSV files and NASA CDF (Common Data Format) science data files
+- **Direct CDF Sync**: Sync CDF files directly to database without manual extraction
 - **Configuration-Based**: Define sync jobs in YAML
 - **Column Mapping**: Rename columns between CSV and database
 - **Filename Extraction**: Extract values from filenames (dates, versions, etc.)
 - **Automatic Cleanup**: Delete stale records based on extracted values
 - **Compound Primary Keys**: Support for multi-column primary keys
 - **Dry-Run Mode**: Preview changes without modifying database
+- **Record Limiting**: Limit extraction with `--max-records` for testing and quick syncs
 - **Idempotent**: Safe to run multiple times
 - **Type Hints**: Full type hints for IDE support
 - **Well Tested**: Comprehensive test suite with real database tests
@@ -85,9 +106,11 @@ This configuration:
 ## Use Cases
 
 - **Daily Data Updates**: Sync daily CSV exports with automatic date extraction and cleanup
-- **Science Data Processing**: Process CDF science files with metadata extraction
+- **Science Data Processing**: Process NASA CDF (Common Data Format) science files directly to database
+- **Mission Data Pipelines**: Automated syncing of spacecraft telemetry and instrument data from CDF files
 - **Data Warehousing**: Load CSV data into PostgreSQL with column transformations
 - **Incremental Updates**: Replace partitioned data (by date, version, etc.) while preserving other partitions
+- **Testing & Development**: Use `--max-records` to quickly test with subset of data
 
 ## Installation
 

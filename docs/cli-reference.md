@@ -19,7 +19,7 @@ data-sync [OPTIONS] COMMAND [ARGS]...
 
 ### sync
 
-Sync a CSV file to the database using a configuration.
+Sync a CSV or CDF file to the database using a configuration.
 
 ```bash
 data-sync sync FILE_PATH CONFIG JOB [OPTIONS]
@@ -29,7 +29,7 @@ data-sync sync FILE_PATH CONFIG JOB [OPTIONS]
 
 | Argument | Type | Required | Description |
 |----------|------|----------|-------------|
-| `FILE_PATH` | Path | Yes | Path to the CSV file to sync |
+| `FILE_PATH` | Path | Yes | Path to the CSV or CDF file to sync |
 | `CONFIG` | Path | Yes | Path to the YAML configuration file |
 | `JOB` | String | Yes | Name of the job to run from config |
 
@@ -39,6 +39,7 @@ data-sync sync FILE_PATH CONFIG JOB [OPTIONS]
 |--------|------|---------|-------------|
 | `--db-url TEXT` | String | `$DATABASE_URL` | PostgreSQL connection string |
 | `--dry-run` | Flag | False | Simulate sync without making database changes |
+| `--max-records INTEGER` | Integer | None (all) | Maximum number of records to extract per variable from CDF files |
 
 #### Environment Variables
 
@@ -48,10 +49,22 @@ data-sync sync FILE_PATH CONFIG JOB [OPTIONS]
 
 #### Examples
 
-**Basic sync:**
+**Basic CSV sync:**
 
 ```bash
 data-sync sync data.csv config.yaml my_job --db-url postgresql://localhost/mydb
+```
+
+**Sync CDF file (automatic extraction):**
+
+```bash
+data-sync sync science_data.cdf config.yaml vectors --db-url postgresql://localhost/mydb
+```
+
+**Sync CDF with limited records (for testing):**
+
+```bash
+data-sync sync science_data.cdf config.yaml vectors --db-url postgresql://localhost/mydb --max-records 200
 ```
 
 **Using environment variable:**
@@ -65,6 +78,12 @@ data-sync sync data.csv config.yaml my_job
 
 ```bash
 data-sync sync data.csv config.yaml my_job --dry-run
+```
+
+**Dry-run CDF with limited records:**
+
+```bash
+data-sync sync data.cdf config.yaml my_job --dry-run --max-records 100
 ```
 
 #### Output
@@ -109,17 +128,17 @@ Data Changes:
 
 ### prepare
 
-Analyze a CSV file and generate or update a configuration file.
+Analyze a CSV or CDF file and generate or update a configuration file.
 
 ```bash
-data-sync prepare FILE_PATH CONFIG [JOB] [OPTIONS]
+data-sync prepare FILE_PATH... CONFIG [JOB] [OPTIONS]
 ```
 
 #### Arguments
 
 | Argument | Type | Required | Description |
 |----------|------|----------|-------------|
-| `FILE_PATH` | Path | Yes | Path to the CSV file to analyze |
+| `FILE_PATH` | Path(s) | Yes | Path to the CSV or CDF file(s) to analyze |
 | `CONFIG` | Path | Yes | Path to the YAML configuration file (created if doesn't exist) |
 | `JOB` | String | No | Name for the job (auto-generated from filename if omitted) |
 
@@ -154,28 +173,34 @@ data-sync prepare FILE_PATH CONFIG [JOB] [OPTIONS]
 
 #### Examples
 
-**Auto-generate job name:**
+**Auto-generate job name from CSV:**
 
 ```bash
-data-sync prepare users.csv config.yaml
+data-sync prepare users.csv --config config.yaml
+```
+
+**Prepare CDF file:**
+
+```bash
+data-sync prepare science_data.cdf --config config.yaml
 ```
 
 **Specify job name:**
 
 ```bash
-data-sync prepare users.csv config.yaml my_custom_job
+data-sync prepare users.csv --config config.yaml --job my_custom_job
 ```
 
 **Multiple files (auto-names each):**
 
 ```bash
-data-sync prepare file1.csv file2.csv config.yaml
+data-sync prepare file1.csv file2.csv --config config.yaml
 ```
 
 **Update existing job:**
 
 ```bash
-data-sync prepare users.csv config.yaml users_sync --force
+data-sync prepare users.csv --config config.yaml --job users_sync --force
 ```
 
 #### Output
@@ -219,6 +244,130 @@ Analyzing users_2024.csv...
 |------|-------------|
 | 0 | Success |
 | 1 | Error occurred (e.g., job exists and --force not used) |
+
+---
+
+### inspect
+
+Inspect CSV or CDF files and display summary information.
+
+```bash
+data-sync inspect FILES... [OPTIONS]
+```
+
+#### Arguments
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `FILES` | Path(s) | Yes | One or more file paths to inspect |
+
+#### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--max-records`, `-n` | Integer | 10 | Number of sample records to display |
+
+#### Examples
+
+**Inspect a single CSV file:**
+
+```bash
+data-sync inspect users.csv
+```
+
+**Inspect a CDF file:**
+
+```bash
+data-sync inspect science_data.cdf
+```
+
+**Inspect with custom record count:**
+
+```bash
+data-sync inspect data.csv --max-records 20
+data-sync inspect data.cdf -n 5
+```
+
+**Inspect multiple files:**
+
+```bash
+data-sync inspect file1.csv file2.cdf file3.csv
+```
+
+#### Output
+
+Displays:
+- File format and size
+- For CSV: column names, types, row count, sample data
+- For CDF: variables, record counts, dimensions, attributes
+
+---
+
+### extract
+
+Extract data from CDF files to CSV format.
+
+```bash
+data-sync extract FILES... [OPTIONS]
+```
+
+#### Arguments
+
+| Argument | Type | Required | Description |
+|----------|------|----------|-------------|
+| `FILES` | Path(s) | Yes | One or more CDF files to extract |
+
+#### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--output-path`, `-o` | Path | Current directory | Output directory for CSV files |
+| `--filename` | String | `[SOURCE_FILE]-[VARIABLE_NAME].csv` | Template for output filenames |
+| `--automerge` | Flag | True | Merge variables with same record count |
+| `--no-automerge` | Flag | - | Create separate CSV for each variable |
+| `--append` | Flag | False | Append to existing CSV files |
+| `--variables`, `-v` | String(s) | All | Specific variable names to extract |
+| `--max-records` | Integer | None (all) | Maximum number of records to extract per variable |
+
+#### Examples
+
+**Extract all variables:**
+
+```bash
+data-sync extract science_data.cdf
+```
+
+**Extract to specific directory:**
+
+```bash
+data-sync extract data.cdf --output-path ./output
+```
+
+**Extract with limited records (for testing):**
+
+```bash
+data-sync extract data.cdf --max-records 100
+```
+
+**Extract specific variables:**
+
+```bash
+data-sync extract data.cdf --variables Epoch --variables B_field
+```
+
+**Extract without automerge:**
+
+```bash
+data-sync extract data.cdf --no-automerge
+```
+
+#### Output
+
+Creates CSV files with:
+- One CSV per group of variables (with automerge)
+- Or one CSV per variable (without automerge)
+- Column names derived from variable labels or names
+- Array variables expanded into multiple columns
 
 ---
 
