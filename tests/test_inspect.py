@@ -16,7 +16,7 @@ class TestInspectCommand:
         result = cli_runner.invoke(main, ["inspect", "--help"])
         assert result.exit_code == 0
         assert "Inspect CSV or CDF files" in result.output
-        assert "--records" in result.output
+        assert "--max-records" in result.output
         assert "-n" in result.output
 
     def test_inspect_missing_file(self, cli_runner: CliRunner) -> None:
@@ -49,7 +49,7 @@ class TestInspectCommand:
         csv_content = "id,value\n" + "\n".join(f"{i},{i * 10}" for i in range(1, 11))
         csv_file.write_text(csv_content)
 
-        result = cli_runner.invoke(main, ["inspect", str(csv_file), "--records", "3"])
+        result = cli_runner.invoke(main, ["inspect", str(csv_file), "--max-records", "3"])
         assert result.exit_code == 0
         assert "first 3" in result.output
         assert "10 rows total" in result.output
@@ -105,7 +105,7 @@ class TestInspectCDFFiles:
         if not cdf_file.exists():
             pytest.skip("CDF test file not found")
 
-        result = cli_runner.invoke(main, ["inspect", str(cdf_file), "--records", "3"])
+        result = cli_runner.invoke(main, ["inspect", str(cdf_file), "--max-records", "3"])
         assert result.exit_code == 0
 
         # Check basic CDF info
