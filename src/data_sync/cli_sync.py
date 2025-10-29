@@ -1,5 +1,6 @@
 """Sync command for syncing CSV and CDF files to database."""
 
+import os
 import tempfile
 from pathlib import Path
 
@@ -29,7 +30,19 @@ def _extract_cdf_and_find_csv(cdf_file: Path, temp_dir: Path) -> list[Path]:
     console.print("[dim]  Extracting CDF data to temporary CSV files...[/dim]")
 
     try:
-        # Extract all data from CDF
+        # Check for test environment variable to limit records (for testing only)
+        max_records = None
+        test_max_records = os.environ.get("DATA_SYNC_TEST_MAX_RECORDS")
+        if test_max_records:
+            try:
+                max_records = int(test_max_records)
+                console.print(
+                    f"[dim]  Test mode: limiting extraction to {max_records} records[/dim]"
+                )
+            except ValueError:
+                pass  # Ignore invalid values
+
+        # Extract all data from CDF (or limited records in test mode)
         results = extract_cdf_to_csv(
             cdf_file_path=cdf_file,
             output_dir=temp_dir,
@@ -37,7 +50,7 @@ def _extract_cdf_and_find_csv(cdf_file: Path, temp_dir: Path) -> list[Path]:
             automerge=True,
             append=False,
             variable_names=None,
-            max_records=None,  # Extract all records
+            max_records=max_records,
         )
 
         if not results:
