@@ -944,6 +944,41 @@ class DatabaseConnection:
                     index_columns = [(col.column, col.order) for col in index.columns]
                     self.create_index(job.target_table, index.name, index_columns)
 
+    def _should_include_row(
+        self, row_index: int, total_rows: int, sample_percentage: float | None
+    ) -> bool:
+        """Determine if a row should be included based on sampling percentage.
+
+        Args:
+            row_index: Zero-based index of the current row
+            total_rows: Total number of rows in the dataset
+            sample_percentage: Optional percentage of rows to sample (0-100)
+
+        Returns:
+            True if row should be included, False otherwise
+        """
+        # If no sampling or 100%, include all rows
+        if sample_percentage is None or sample_percentage >= 100:
+            return True
+
+        # If 0%, exclude all rows (edge case)
+        if sample_percentage <= 0:
+            return False
+
+        # Always include first row
+        if row_index == 0:
+            return True
+
+        # Always include last row
+        if row_index == total_rows - 1:
+            return True
+
+        # Sample other rows based on percentage
+        # For 10%, interval = 10, so include rows 0, 10, 20, 30...
+        # For 25%, interval = 4, so include rows 0, 4, 8, 12...
+        interval = int(100 / sample_percentage)
+        return row_index % interval == 0
+
     def _process_csv_rows(
         self,
         reader: Any,
@@ -967,24 +1002,54 @@ class DatabaseConnection:
         rows_synced = 0
         synced_ids: set[tuple] = set()
 
-        for row in reader:
-            row_data = {}
-            for col_mapping in sync_columns:
-                if col_mapping.csv_column in row:
-                    row_data[col_mapping.db_column] = row[col_mapping.csv_column]
+        # For sampling, we need to know total row count first
+        if job.sample_percentage is not None and job.sample_percentage < 100:
+            # Read all rows into memory to get total count and apply sampling
+            all_rows = list(reader)
+            total_rows = len(all_rows)
 
-            # Add filename values if configured
-            if job.filename_to_column and filename_values:
-                for col_name, col_mapping in job.filename_to_column.columns.items():
-                    if col_name in filename_values:
-                        row_data[col_mapping.db_column] = filename_values[col_name]
+            for row_index, row in enumerate(all_rows):
+                # Check if this row should be included
+                if not self._should_include_row(row_index, total_rows, job.sample_percentage):
+                    continue
 
-            self.upsert_row(job.target_table, primary_keys, row_data)
+                row_data = {}
+                for col_mapping in sync_columns:
+                    if col_mapping.csv_column in row:
+                        row_data[col_mapping.db_column] = row[col_mapping.csv_column]
 
-            # Track synced IDs as tuples (for compound key support)
-            id_values = tuple(row_data[id_col.db_column] for id_col in job.id_mapping)
-            synced_ids.add(id_values)
-            rows_synced += 1
+                # Add filename values if configured
+                if job.filename_to_column and filename_values:
+                    for col_name, col_mapping in job.filename_to_column.columns.items():
+                        if col_name in filename_values:
+                            row_data[col_mapping.db_column] = filename_values[col_name]
+
+                self.upsert_row(job.target_table, primary_keys, row_data)
+
+                # Track synced IDs as tuples (for compound key support)
+                id_values = tuple(row_data[id_col.db_column] for id_col in job.id_mapping)
+                synced_ids.add(id_values)
+                rows_synced += 1
+        else:
+            # No sampling - process rows normally without loading into memory
+            for row in reader:
+                row_data = {}
+                for col_mapping in sync_columns:
+                    if col_mapping.csv_column in row:
+                        row_data[col_mapping.db_column] = row[col_mapping.csv_column]
+
+                # Add filename values if configured
+                if job.filename_to_column and filename_values:
+                    for col_name, col_mapping in job.filename_to_column.columns.items():
+                        if col_name in filename_values:
+                            row_data[col_mapping.db_column] = filename_values[col_name]
+
+                self.upsert_row(job.target_table, primary_keys, row_data)
+
+                # Track synced IDs as tuples (for compound key support)
+                id_values = tuple(row_data[id_col.db_column] for id_col in job.id_mapping)
+                synced_ids.add(id_values)
+                rows_synced += 1
 
         return rows_synced, synced_ids
 
@@ -1014,22 +1079,51 @@ class DatabaseConnection:
 
         with open(csv_path, encoding="utf-8") as f:
             reader = csv.DictReader(f)
-            for row in reader:
-                row_data = {}
-                for col_mapping in sync_columns:
-                    if col_mapping.csv_column in row:
-                        row_data[col_mapping.db_column] = row[col_mapping.csv_column]
 
-                # Add filename values if configured
-                if job.filename_to_column and filename_values:
-                    for col_name, col_mapping in job.filename_to_column.columns.items():
-                        if col_name in filename_values:
-                            row_data[col_mapping.db_column] = filename_values[col_name]
+            # For sampling, we need to know total row count first
+            if job.sample_percentage is not None and job.sample_percentage < 100:
+                # Read all rows into memory to get total count and apply sampling
+                all_rows = list(reader)
+                total_rows = len(all_rows)
 
-                # Track synced IDs as tuples (for compound key support)
-                id_values = tuple(row_data[id_col.db_column] for id_col in job.id_mapping)
-                synced_ids.add(id_values)
-                row_count += 1
+                for row_index, row in enumerate(all_rows):
+                    # Check if this row should be included
+                    if not self._should_include_row(row_index, total_rows, job.sample_percentage):
+                        continue
+
+                    row_data = {}
+                    for col_mapping in sync_columns:
+                        if col_mapping.csv_column in row:
+                            row_data[col_mapping.db_column] = row[col_mapping.csv_column]
+
+                    # Add filename values if configured
+                    if job.filename_to_column and filename_values:
+                        for col_name, col_mapping in job.filename_to_column.columns.items():
+                            if col_name in filename_values:
+                                row_data[col_mapping.db_column] = filename_values[col_name]
+
+                    # Track synced IDs as tuples (for compound key support)
+                    id_values = tuple(row_data[id_col.db_column] for id_col in job.id_mapping)
+                    synced_ids.add(id_values)
+                    row_count += 1
+            else:
+                # No sampling - process rows normally
+                for row in reader:
+                    row_data = {}
+                    for col_mapping in sync_columns:
+                        if col_mapping.csv_column in row:
+                            row_data[col_mapping.db_column] = row[col_mapping.csv_column]
+
+                    # Add filename values if configured
+                    if job.filename_to_column and filename_values:
+                        for col_name, col_mapping in job.filename_to_column.columns.items():
+                            if col_name in filename_values:
+                                row_data[col_mapping.db_column] = filename_values[col_name]
+
+                    # Track synced IDs as tuples (for compound key support)
+                    id_values = tuple(row_data[id_col.db_column] for id_col in job.id_mapping)
+                    synced_ids.add(id_values)
+                    row_count += 1
 
         return row_count, synced_ids
 

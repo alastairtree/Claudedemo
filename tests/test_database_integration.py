@@ -974,3 +974,185 @@ jobs:
 
         total_after = execute_query(db_url, "SELECT COUNT(*) FROM mission_records")
         assert total_after[0][0] == 3  # IDs 1,3,4
+
+
+class TestSamplePercentage:
+    """Integration tests for sample_percentage feature."""
+
+    def test_sync_with_sample_percentage_10(self, tmp_path: Path, db_url: str) -> None:
+        """Test syncing with 10% sample (1 in 10 rows, plus first and last)."""
+        from tests.test_helpers import create_csv_file
+
+        # Create CSV with 25 rows
+        csv_file = tmp_path / "data.csv"
+        rows = [{"id": str(i), "value": f"row_{i}"} for i in range(25)]
+        create_csv_file(csv_file, ["id", "value"], rows)
+
+        # Create config with 10% sampling
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_sample:
+    target_table: sample_test
+    id_mapping:
+      id: id
+    sample_percentage: 10
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_sample")
+        assert job is not None
+
+        # Sync with sampling
+        rows_synced = sync_csv_to_postgres(csv_file, job, db_url)
+
+        # Verify correct rows were synced
+        # With 10%, we expect rows at indices: 0, 10, 20, 24 (last)
+        # That's 4 rows total
+        assert rows_synced == 4
+
+        # Verify data in database
+        rows_db = execute_query(
+            db_url, "SELECT id, value FROM sample_test ORDER BY CAST(id AS INTEGER)"
+        )
+        assert len(rows_db) == 4
+        assert rows_db[0] == ("0", "row_0")  # First row always included
+        assert rows_db[1] == ("10", "row_10")  # 10% interval
+        assert rows_db[2] == ("20", "row_20")  # 10% interval
+        assert rows_db[3] == ("24", "row_24")  # Last row always included
+
+    def test_sync_with_sample_percentage_50(self, tmp_path: Path, db_url: str) -> None:
+        """Test syncing with 50% sample (1 in 2 rows, plus first and last)."""
+        from tests.test_helpers import create_csv_file
+
+        # Create CSV with 10 rows
+        csv_file = tmp_path / "data.csv"
+        rows = [{"id": str(i), "value": f"row_{i}"} for i in range(10)]
+        create_csv_file(csv_file, ["id", "value"], rows)
+
+        # Create config with 50% sampling
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_sample:
+    target_table: sample_test_50
+    id_mapping:
+      id: id
+    sample_percentage: 50
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_sample")
+        assert job is not None
+
+        # Sync with sampling
+        rows_synced = sync_csv_to_postgres(csv_file, job, db_url)
+
+        # With 50%, we expect rows at indices: 0, 2, 4, 6, 8, 9 (last)
+        # That's 6 rows total
+        assert rows_synced == 6
+
+        # Verify data in database
+        rows_db = execute_query(
+            db_url, "SELECT id FROM sample_test_50 ORDER BY CAST(id AS INTEGER)"
+        )
+        synced_ids = [row[0] for row in rows_db]
+        assert synced_ids == ["0", "2", "4", "6", "8", "9"]
+
+    def test_sync_with_sample_percentage_100(self, tmp_path: Path, db_url: str) -> None:
+        """Test syncing with 100% sample (all rows)."""
+        from tests.test_helpers import create_csv_file
+
+        # Create CSV with 5 rows
+        csv_file = tmp_path / "data.csv"
+        rows = [{"id": str(i), "value": f"row_{i}"} for i in range(5)]
+        create_csv_file(csv_file, ["id", "value"], rows)
+
+        # Create config with 100% sampling
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_sample:
+    target_table: sample_test_100
+    id_mapping:
+      id: id
+    sample_percentage: 100
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_sample")
+        assert job is not None
+
+        # Sync with 100% sampling (should sync all rows)
+        rows_synced = sync_csv_to_postgres(csv_file, job, db_url)
+        assert rows_synced == 5
+
+        # Verify all rows in database
+        count = execute_query(db_url, "SELECT COUNT(*) FROM sample_test_100")
+        assert count[0][0] == 5
+
+    def test_sync_without_sample_percentage(self, tmp_path: Path, db_url: str) -> None:
+        """Test syncing without sample_percentage (all rows)."""
+        from tests.test_helpers import create_csv_file
+
+        # Create CSV with 5 rows
+        csv_file = tmp_path / "data.csv"
+        rows = [{"id": str(i), "value": f"row_{i}"} for i in range(5)]
+        create_csv_file(csv_file, ["id", "value"], rows)
+
+        # Create config without sample_percentage
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_sample:
+    target_table: sample_test_none
+    id_mapping:
+      id: id
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_sample")
+        assert job is not None
+
+        # Sync without sampling (should sync all rows)
+        rows_synced = sync_csv_to_postgres(csv_file, job, db_url)
+        assert rows_synced == 5
+
+        # Verify all rows in database
+        count = execute_query(db_url, "SELECT COUNT(*) FROM sample_test_none")
+        assert count[0][0] == 5
+
+    def test_dry_run_with_sample_percentage(self, tmp_path: Path, db_url: str) -> None:
+        """Test dry run with sample_percentage."""
+        from data_sync.database import sync_csv_to_postgres_dry_run
+        from tests.test_helpers import create_csv_file
+
+        # Create CSV with 25 rows
+        csv_file = tmp_path / "data.csv"
+        rows = [{"id": str(i), "value": f"row_{i}"} for i in range(25)]
+        create_csv_file(csv_file, ["id", "value"], rows)
+
+        # Create config with 10% sampling
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_sample:
+    target_table: sample_test_dry
+    id_mapping:
+      id: id
+    sample_percentage: 10
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_sample")
+        assert job is not None
+
+        # Dry run
+        summary = sync_csv_to_postgres_dry_run(csv_file, job, db_url)
+
+        # Verify dry run summary
+        assert summary.table_name == "sample_test_dry"
+        assert summary.table_exists is False
+        # With 10% sampling, we expect 4 rows (0, 10, 20, 24)
+        assert summary.rows_to_sync == 4
+        assert summary.rows_to_delete == 0

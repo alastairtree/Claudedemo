@@ -705,3 +705,184 @@ jobs:
 
         date_col = loaded_job.filename_to_column.columns["date"]
         assert date_col.use_to_delete_old_rows is True
+
+
+class TestSamplePercentage:
+    """Test suite for sample_percentage configuration."""
+
+    def test_config_with_sample_percentage(self, tmp_path: Path) -> None:
+        """Test loading config with sample_percentage."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: users
+    id_mapping:
+      user_id: id
+    columns:
+      name: full_name
+    sample_percentage: 10
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_job")
+        assert job is not None
+        assert job.sample_percentage == 10
+
+    def test_config_without_sample_percentage(self, tmp_path: Path) -> None:
+        """Test loading config without sample_percentage (defaults to None)."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: users
+    id_mapping:
+      user_id: id
+    columns:
+      name: full_name
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_job")
+        assert job is not None
+        assert job.sample_percentage is None
+
+    def test_config_with_sample_percentage_100(self, tmp_path: Path) -> None:
+        """Test loading config with sample_percentage of 100 (sync all rows)."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: users
+    id_mapping:
+      user_id: id
+    sample_percentage: 100
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_job")
+        assert job is not None
+        assert job.sample_percentage == 100
+
+    def test_config_with_sample_percentage_float(self, tmp_path: Path) -> None:
+        """Test loading config with float sample_percentage."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: users
+    id_mapping:
+      user_id: id
+    sample_percentage: 12.5
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_job")
+        assert job is not None
+        assert job.sample_percentage == 12.5
+
+    def test_config_sample_percentage_out_of_range_high(self, tmp_path: Path) -> None:
+        """Test that sample_percentage > 100 raises error."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: users
+    id_mapping:
+      user_id: id
+    sample_percentage: 150
+""")
+
+        with pytest.raises(ValueError, match="sample_percentage must be between 0 and 100"):
+            SyncConfig.from_yaml(config_file)
+
+    def test_config_sample_percentage_out_of_range_low(self, tmp_path: Path) -> None:
+        """Test that sample_percentage < 0 raises error."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: users
+    id_mapping:
+      user_id: id
+    sample_percentage: -10
+""")
+
+        with pytest.raises(ValueError, match="sample_percentage must be between 0 and 100"):
+            SyncConfig.from_yaml(config_file)
+
+    def test_config_sample_percentage_invalid_type(self, tmp_path: Path) -> None:
+        """Test that non-numeric sample_percentage raises error."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: users
+    id_mapping:
+      user_id: id
+    sample_percentage: "invalid"
+""")
+
+        with pytest.raises(ValueError, match="sample_percentage must be a number"):
+            SyncConfig.from_yaml(config_file)
+
+    def test_save_config_with_sample_percentage(self, tmp_path: Path) -> None:
+        """Test saving config with sample_percentage."""
+        from data_sync.config import ColumnMapping, SyncJob
+
+        job = SyncJob(
+            name="test_job",
+            target_table="users",
+            id_mapping=[ColumnMapping("user_id", "id")],
+            columns=[ColumnMapping("name", "full_name")],
+            sample_percentage=25.0,
+        )
+
+        config = SyncConfig(jobs={"test_job": job})
+        config_file = tmp_path / "config.yaml"
+        config.save_to_yaml(config_file)
+
+        # Reload and verify
+        loaded_config = SyncConfig.from_yaml(config_file)
+        loaded_job = loaded_config.get_job("test_job")
+        assert loaded_job is not None
+        assert loaded_job.sample_percentage == 25.0
+
+    def test_save_config_without_sample_percentage(self, tmp_path: Path) -> None:
+        """Test saving config without sample_percentage (should not appear in YAML)."""
+        from data_sync.config import ColumnMapping, SyncJob
+
+        job = SyncJob(
+            name="test_job",
+            target_table="users",
+            id_mapping=[ColumnMapping("user_id", "id")],
+            columns=[ColumnMapping("name", "full_name")],
+        )
+
+        config = SyncConfig(jobs={"test_job": job})
+        config_file = tmp_path / "config.yaml"
+        config.save_to_yaml(config_file)
+
+        # Read file and check sample_percentage is not present
+        content = config_file.read_text()
+        assert "sample_percentage" not in content
+
+    def test_save_config_with_sample_percentage_100(self, tmp_path: Path) -> None:
+        """Test saving config with sample_percentage=100 (should not appear in YAML)."""
+        from data_sync.config import ColumnMapping, SyncJob
+
+        job = SyncJob(
+            name="test_job",
+            target_table="users",
+            id_mapping=[ColumnMapping("user_id", "id")],
+            columns=[ColumnMapping("name", "full_name")],
+            sample_percentage=100,
+        )
+
+        config = SyncConfig(jobs={"test_job": job})
+        config_file = tmp_path / "config.yaml"
+        config.save_to_yaml(config_file)
+
+        # Read file and check sample_percentage is not present (since 100 is default)
+        content = config_file.read_text()
+        assert "sample_percentage" not in content
