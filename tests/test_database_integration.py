@@ -1156,3 +1156,208 @@ jobs:
         # With 10% sampling, we expect 4 rows (0, 10, 20, 24)
         assert summary.rows_to_sync == 4
         assert summary.rows_to_delete == 0
+
+
+class TestColumnLookup:
+    """Integration tests for column lookup feature."""
+
+    def test_sync_with_lookup_string_to_int(self, tmp_path: Path, db_url: str) -> None:
+        """Test syncing with lookup mapping strings to integers."""
+        from tests.test_helpers import create_csv_file
+
+        # Create CSV with string status values
+        csv_file = tmp_path / "users.csv"
+        rows = [
+            {"user_id": "1", "name": "Alice", "status": "active"},
+            {"user_id": "2", "name": "Bob", "status": "inactive"},
+            {"user_id": "3", "name": "Charlie", "status": "pending"},
+        ]
+        create_csv_file(csv_file, ["user_id", "name", "status"], rows)
+
+        # Create config with lookup
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_lookup:
+    target_table: users_with_lookup
+    id_mapping:
+      user_id: id
+    columns:
+      name: full_name
+      status:
+        db_column: status_code
+        type: integer
+        lookup:
+          active: 1
+          inactive: 0
+          pending: 2
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_lookup")
+        assert job is not None
+
+        # Sync with lookup
+        rows_synced = sync_csv_to_postgres(csv_file, job, db_url)
+        assert rows_synced == 3
+
+        # Verify data was transformed
+        rows_db = execute_query(
+            db_url, "SELECT id, full_name, status_code FROM users_with_lookup ORDER BY id"
+        )
+        assert len(rows_db) == 3
+        assert rows_db[0] == ("1", "Alice", 1)  # "active" -> 1
+        assert rows_db[1] == ("2", "Bob", 0)  # "inactive" -> 0
+        assert rows_db[2] == ("3", "Charlie", 2)  # "pending" -> 2
+
+    def test_sync_with_lookup_passthrough_unknown_values(self, tmp_path: Path, db_url: str) -> None:
+        """Test that values not in lookup are passed through unchanged."""
+        from tests.test_helpers import create_csv_file
+
+        # Create CSV with some unknown status values
+        csv_file = tmp_path / "users.csv"
+        rows = [
+            {"user_id": "1", "status": "active"},
+            {"user_id": "2", "status": "inactive"},
+            {"user_id": "3", "status": "unknown_status"},
+        ]
+        create_csv_file(csv_file, ["user_id", "status"], rows)
+
+        # Create config with lookup
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_lookup:
+    target_table: users_lookup_passthrough
+    id_mapping:
+      user_id: id
+    columns:
+      status:
+        db_column: status_code
+        lookup:
+          active: 1
+          inactive: 0
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_lookup")
+        assert job is not None
+
+        # Sync with lookup
+        rows_synced = sync_csv_to_postgres(csv_file, job, db_url)
+        assert rows_synced == 3
+
+        # Verify data - unknown values passed through
+        rows_db = execute_query(
+            db_url, "SELECT id, status_code FROM users_lookup_passthrough ORDER BY id"
+        )
+        assert len(rows_db) == 3
+        assert rows_db[0] == ("1", "1")  # "active" -> 1 (but stored as string)
+        assert rows_db[1] == ("2", "0")  # "inactive" -> 0 (but stored as string)
+        assert rows_db[2] == ("3", "unknown_status")  # Passed through unchanged
+
+    def test_sync_with_lookup_string_to_string(self, tmp_path: Path, db_url: str) -> None:
+        """Test syncing with lookup mapping strings to different strings."""
+        from tests.test_helpers import create_csv_file
+
+        # Create CSV with abbreviated size codes
+        csv_file = tmp_path / "products.csv"
+        rows = [
+            {"product_id": "1", "name": "T-Shirt", "size": "S"},
+            {"product_id": "2", "name": "Pants", "size": "M"},
+            {"product_id": "3", "name": "Jacket", "size": "L"},
+            {"product_id": "4", "name": "Coat", "size": "XL"},
+        ]
+        create_csv_file(csv_file, ["product_id", "name", "size"], rows)
+
+        # Create config with lookup for size expansion
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_lookup:
+    target_table: products_lookup
+    id_mapping:
+      product_id: id
+    columns:
+      name: product_name
+      size:
+        db_column: size_full
+        lookup:
+          S: Small
+          M: Medium
+          L: Large
+          XL: Extra Large
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_lookup")
+        assert job is not None
+
+        # Sync with lookup
+        rows_synced = sync_csv_to_postgres(csv_file, job, db_url)
+        assert rows_synced == 4
+
+        # Verify data was transformed
+        rows_db = execute_query(
+            db_url, "SELECT id, product_name, size_full FROM products_lookup ORDER BY id"
+        )
+        assert len(rows_db) == 4
+        assert rows_db[0] == ("1", "T-Shirt", "Small")
+        assert rows_db[1] == ("2", "Pants", "Medium")
+        assert rows_db[2] == ("3", "Jacket", "Large")
+        assert rows_db[3] == ("4", "Coat", "Extra Large")
+
+    def test_sync_with_multiple_lookup_columns(self, tmp_path: Path, db_url: str) -> None:
+        """Test syncing with multiple columns having lookups."""
+        from tests.test_helpers import create_csv_file
+
+        # Create CSV with multiple lookup columns
+        csv_file = tmp_path / "orders.csv"
+        rows = [
+            {"order_id": "1", "status": "pending", "priority": "high"},
+            {"order_id": "2", "status": "shipped", "priority": "low"},
+            {"order_id": "3", "status": "delivered", "priority": "medium"},
+        ]
+        create_csv_file(csv_file, ["order_id", "status", "priority"], rows)
+
+        # Create config with lookups for both columns
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_lookup:
+    target_table: orders_lookup
+    id_mapping:
+      order_id: id
+    columns:
+      status:
+        db_column: status_code
+        type: integer
+        lookup:
+          pending: 1
+          shipped: 2
+          delivered: 3
+      priority:
+        db_column: priority_level
+        type: integer
+        lookup:
+          low: 1
+          medium: 2
+          high: 3
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_lookup")
+        assert job is not None
+
+        # Sync with lookups
+        rows_synced = sync_csv_to_postgres(csv_file, job, db_url)
+        assert rows_synced == 3
+
+        # Verify both columns were transformed
+        rows_db = execute_query(
+            db_url, "SELECT id, status_code, priority_level FROM orders_lookup ORDER BY id"
+        )
+        assert len(rows_db) == 3
+        assert rows_db[0] == ("1", 1, 3)  # pending -> 1, high -> 3
+        assert rows_db[1] == ("2", 2, 1)  # shipped -> 2, low -> 1
+        assert rows_db[2] == ("3", 3, 2)  # delivered -> 3, medium -> 2

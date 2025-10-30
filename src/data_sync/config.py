@@ -18,6 +18,7 @@ class ColumnMapping:
         db_column: str,
         data_type: str | None = None,
         nullable: bool | None = None,
+        lookup: dict[str, Any] | None = None,
     ) -> None:
         """Initialize column mapping.
 
@@ -26,11 +27,28 @@ class ColumnMapping:
             db_column: Name of the column in the database
             data_type: Optional data type (integer, float, date, datetime, text, varchar(N))
             nullable: Optional flag indicating if NULL values are allowed (True=NULL, False=NOT NULL)
+            lookup: Optional dictionary to map CSV values to database values.
+                   Values not in the lookup are passed through unchanged.
+                   Example: {"active": 1, "inactive": 0} to convert status strings to integers.
         """
         self.csv_column = csv_column
         self.db_column = db_column
         self.data_type = data_type
         self.nullable = nullable
+        self.lookup = lookup
+
+    def apply_lookup(self, value: str) -> Any:
+        """Apply lookup transformation to a value.
+
+        Args:
+            value: The value from the CSV
+
+        Returns:
+            The transformed value if found in lookup, otherwise the original value
+        """
+        if self.lookup is None:
+            return value
+        return self.lookup.get(value, value)
 
 
 class FilenameColumnMapping:
@@ -343,11 +361,11 @@ class SyncConfig:
 
         Supports two formats:
         1. Simple: csv_column: db_column
-        2. Extended: csv_column: {db_column: name, type: data_type, nullable: true/false}
+        2. Extended: csv_column: {db_column: name, type: data_type, nullable: true/false, lookup: {...}}
 
         Args:
             csv_col: CSV column name
-            value: Either a string (db_column) or dict with db_column and optional type/nullable
+            value: Either a string (db_column) or dict with db_column and optional type/nullable/lookup
             job_name: Job name (for error messages)
 
         Returns:
@@ -360,7 +378,7 @@ class SyncConfig:
             # Simple format: csv_column: db_column
             return ColumnMapping(csv_column=csv_col, db_column=value)
         elif isinstance(value, dict):
-            # Extended format: csv_column: {db_column: name, type: data_type, nullable: true/false}
+            # Extended format: csv_column: {db_column: name, type: data_type, nullable: true/false, lookup: {...}}
             if "db_column" not in value:
                 raise ValueError(
                     f"Job '{job_name}' column '{csv_col}' extended mapping must have 'db_column'"
@@ -368,8 +386,18 @@ class SyncConfig:
             db_column = value["db_column"]
             data_type = value.get("type")  # Optional
             nullable = value.get("nullable")  # Optional
+            lookup = value.get("lookup")  # Optional
+
+            # Validate lookup is a dict if provided
+            if lookup is not None and not isinstance(lookup, dict):
+                raise ValueError(f"Job '{job_name}' column '{csv_col}' lookup must be a dictionary")
+
             return ColumnMapping(
-                csv_column=csv_col, db_column=db_column, data_type=data_type, nullable=nullable
+                csv_column=csv_col,
+                db_column=db_column,
+                data_type=data_type,
+                nullable=nullable,
+                lookup=lookup,
             )
         else:
             raise ValueError(
@@ -559,12 +587,14 @@ class SyncConfig:
             # Build id_mapping dict (supports compound primary keys)
             id_mapping_dict: dict[str, Any] = {}
             for id_col in job.id_mapping:
-                if id_col.data_type or id_col.nullable is not None:
+                if id_col.data_type or id_col.nullable is not None or id_col.lookup is not None:
                     mapping_dict: dict[str, Any] = {"db_column": id_col.db_column}
                     if id_col.data_type:
                         mapping_dict["type"] = id_col.data_type
                     if id_col.nullable is not None:
                         mapping_dict["nullable"] = id_col.nullable
+                    if id_col.lookup is not None:
+                        mapping_dict["lookup"] = id_col.lookup
                     id_mapping_dict[id_col.csv_column] = mapping_dict
                 else:
                     id_mapping_dict[id_col.csv_column] = id_col.db_column
@@ -578,12 +608,14 @@ class SyncConfig:
             if job.columns:
                 columns_dict: dict[str, Any] = {}
                 for col in job.columns:
-                    if col.data_type or col.nullable is not None:
+                    if col.data_type or col.nullable is not None or col.lookup is not None:
                         mapping_dict = {"db_column": col.db_column}
                         if col.data_type:
                             mapping_dict["type"] = col.data_type
                         if col.nullable is not None:
                             mapping_dict["nullable"] = col.nullable
+                        if col.lookup is not None:
+                            mapping_dict["lookup"] = col.lookup
                         columns_dict[col.csv_column] = mapping_dict
                     else:
                         columns_dict[col.csv_column] = col.db_column

@@ -62,6 +62,102 @@ columns:
 !!! tip
     If you omit the `columns` field entirely, all CSV columns are synced with their original names.
 
+### Column Lookups
+
+Transform CSV values to different values in the database using lookup dictionaries. This is useful for:
+
+- Converting human-readable strings to numeric codes (e.g., "active" → 1)
+- Mapping abbreviations to full values (e.g., "S" → "Small")
+- Standardizing inconsistent values
+- Converting between different code systems
+
+#### Basic Lookup
+
+```yaml
+columns:
+  status:
+    db_column: status_code
+    type: integer
+    lookup:
+      active: 1
+      inactive: 0
+      pending: 2
+```
+
+This converts:
+- `"active"` → `1`
+- `"inactive"` → `0`
+- `"pending"` → `2`
+- Any other value passes through unchanged
+
+#### Lookup Behavior
+
+- **Matching values**: Transformed according to the lookup dictionary
+- **Non-matching values**: Passed through unchanged (no error)
+- **Type conversion**: The `type` field defines the database type, allowing string-to-int conversions
+- **Works with all column types**: Can be used with regular columns and id_mapping
+
+#### Examples
+
+**String to Integer (Status Codes):**
+```yaml
+columns:
+  status:
+    db_column: status_code
+    type: integer
+    lookup:
+      active: 1
+      inactive: 0
+      suspended: -1
+```
+
+**String to String (Size Expansion):**
+```yaml
+columns:
+  size:
+    db_column: size_full
+    lookup:
+      S: Small
+      M: Medium
+      L: Large
+      XL: Extra Large
+```
+
+**Multiple Lookup Columns:**
+```yaml
+columns:
+  status:
+    db_column: status_code
+    type: integer
+    lookup:
+      pending: 1
+      shipped: 2
+      delivered: 3
+  priority:
+    db_column: priority_level
+    type: integer
+    lookup:
+      low: 1
+      medium: 2
+      high: 3
+```
+
+**With Data Type and Nullable:**
+```yaml
+columns:
+  category:
+    db_column: category_id
+    type: integer
+    nullable: false
+    lookup:
+      electronics: 100
+      clothing: 200
+      food: 300
+```
+
+!!! note
+    Lookups are applied **before** type conversion. For example, if you lookup `"active"` → `1` with `type: integer`, the value `1` is already an integer and will be stored correctly in an integer column.
+
 ### Filename to Column
 
 Extract values from filenames and store them in database columns:
@@ -375,8 +471,9 @@ jobs:
 3. **Use dry-run mode**: Test configuration before running actual syncs
 4. **Add indexes**: Define indexes for columns you'll query frequently
 5. **Use filename extraction**: For time-series or versioned data, extract metadata from filenames
-6. **Compound keys carefully**: Only use when a single column isn't unique
-7. **Document your jobs**: Use descriptive job names that explain what they do
+6. **Use lookups for standardization**: Transform inconsistent CSV values to standardized database values
+7. **Compound keys carefully**: Only use when a single column isn't unique
+8. **Document your jobs**: Use descriptive job names that explain what they do
 
 ## Next Steps
 

@@ -886,3 +886,181 @@ jobs:
         # Read file and check sample_percentage is not present (since 100 is default)
         content = config_file.read_text()
         assert "sample_percentage" not in content
+
+
+class TestColumnLookup:
+    """Test suite for column lookup feature."""
+
+    def test_config_with_lookup(self, tmp_path: Path) -> None:
+        """Test loading config with lookup dictionary."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: users
+    id_mapping:
+      user_id: id
+    columns:
+      status:
+        db_column: status_code
+        type: integer
+        lookup:
+          active: 1
+          inactive: 0
+          pending: 2
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_job")
+        assert job is not None
+        assert len(job.columns) == 1
+
+        status_col = job.columns[0]
+        assert status_col.csv_column == "status"
+        assert status_col.db_column == "status_code"
+        assert status_col.data_type == "integer"
+        assert status_col.lookup is not None
+        assert status_col.lookup == {"active": 1, "inactive": 0, "pending": 2}
+
+    def test_apply_lookup_with_matching_value(self) -> None:
+        """Test applying lookup with a value that exists in the lookup."""
+        from data_sync.config import ColumnMapping
+
+        col = ColumnMapping(
+            csv_column="status",
+            db_column="status_code",
+            lookup={"active": 1, "inactive": 0},
+        )
+
+        result = col.apply_lookup("active")
+        assert result == 1
+
+        result = col.apply_lookup("inactive")
+        assert result == 0
+
+    def test_apply_lookup_with_non_matching_value(self) -> None:
+        """Test applying lookup with a value that doesn't exist (passes through unchanged)."""
+        from data_sync.config import ColumnMapping
+
+        col = ColumnMapping(
+            csv_column="status",
+            db_column="status_code",
+            lookup={"active": 1, "inactive": 0},
+        )
+
+        result = col.apply_lookup("unknown")
+        assert result == "unknown"  # Passes through unchanged
+
+    def test_apply_lookup_without_lookup_configured(self) -> None:
+        """Test applying lookup when no lookup is configured (passes through unchanged)."""
+        from data_sync.config import ColumnMapping
+
+        col = ColumnMapping(csv_column="status", db_column="status_code")
+
+        result = col.apply_lookup("active")
+        assert result == "active"  # No lookup, so passes through
+
+    def test_config_with_mixed_types_in_lookup(self, tmp_path: Path) -> None:
+        """Test lookup with different value types (string to int, string to string, etc.)."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: products
+    id_mapping:
+      product_id: id
+    columns:
+      category:
+        db_column: category_id
+        type: integer
+        lookup:
+          electronics: 100
+          clothing: 200
+          food: 300
+      size:
+        db_column: size_code
+        lookup:
+          S: SM
+          M: MD
+          L: LG
+          XL: XLG
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_job")
+        assert job is not None
+        assert len(job.columns) == 2
+
+        category_col = next(c for c in job.columns if c.csv_column == "category")
+        assert category_col.lookup == {"electronics": 100, "clothing": 200, "food": 300}
+
+        size_col = next(c for c in job.columns if c.csv_column == "size")
+        assert size_col.lookup == {"S": "SM", "M": "MD", "L": "LG", "XL": "XLG"}
+
+    def test_config_lookup_invalid_type(self, tmp_path: Path) -> None:
+        """Test that non-dict lookup raises error."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: users
+    id_mapping:
+      user_id: id
+    columns:
+      status:
+        db_column: status_code
+        lookup: "not a dictionary"
+""")
+
+        with pytest.raises(ValueError, match="lookup must be a dictionary"):
+            SyncConfig.from_yaml(config_file)
+
+    def test_save_config_with_lookup(self, tmp_path: Path) -> None:
+        """Test saving config with lookup."""
+        from data_sync.config import ColumnMapping, SyncJob
+
+        job = SyncJob(
+            name="test_job",
+            target_table="users",
+            id_mapping=[ColumnMapping("user_id", "id")],
+            columns=[
+                ColumnMapping(
+                    "status",
+                    "status_code",
+                    data_type="integer",
+                    lookup={"active": 1, "inactive": 0},
+                )
+            ],
+        )
+
+        config = SyncConfig(jobs={"test_job": job})
+        config_file = tmp_path / "config.yaml"
+        config.save_to_yaml(config_file)
+
+        # Reload and verify
+        loaded_config = SyncConfig.from_yaml(config_file)
+        loaded_job = loaded_config.get_job("test_job")
+        assert loaded_job is not None
+        assert len(loaded_job.columns) == 1
+
+        status_col = loaded_job.columns[0]
+        assert status_col.lookup == {"active": 1, "inactive": 0}
+
+    def test_save_config_without_lookup(self, tmp_path: Path) -> None:
+        """Test saving config without lookup (should not appear in YAML)."""
+        from data_sync.config import ColumnMapping, SyncJob
+
+        job = SyncJob(
+            name="test_job",
+            target_table="users",
+            id_mapping=[ColumnMapping("user_id", "id")],
+            columns=[ColumnMapping("status", "status_code", data_type="integer")],
+        )
+
+        config = SyncConfig(jobs={"test_job": job})
+        config_file = tmp_path / "config.yaml"
+        config.save_to_yaml(config_file)
+
+        # Read file and check lookup is not present
+        content = config_file.read_text()
+        assert "lookup" not in content

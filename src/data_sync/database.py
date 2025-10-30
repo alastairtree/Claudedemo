@@ -1016,7 +1016,9 @@ class DatabaseConnection:
                 row_data = {}
                 for col_mapping in sync_columns:
                     if col_mapping.csv_column in row:
-                        row_data[col_mapping.db_column] = row[col_mapping.csv_column]
+                        csv_value = row[col_mapping.csv_column]
+                        # Apply lookup transformation if configured
+                        row_data[col_mapping.db_column] = col_mapping.apply_lookup(csv_value)
 
                 # Add filename values if configured
                 if job.filename_to_column and filename_values:
@@ -1036,7 +1038,9 @@ class DatabaseConnection:
                 row_data = {}
                 for col_mapping in sync_columns:
                     if col_mapping.csv_column in row:
-                        row_data[col_mapping.db_column] = row[col_mapping.csv_column]
+                        csv_value = row[col_mapping.csv_column]
+                        # Apply lookup transformation if configured
+                        row_data[col_mapping.db_column] = col_mapping.apply_lookup(csv_value)
 
                 # Add filename values if configured
                 if job.filename_to_column and filename_values:
@@ -1094,7 +1098,9 @@ class DatabaseConnection:
                     row_data = {}
                     for col_mapping in sync_columns:
                         if col_mapping.csv_column in row:
-                            row_data[col_mapping.db_column] = row[col_mapping.csv_column]
+                            csv_value = row[col_mapping.csv_column]
+                            # Apply lookup transformation if configured
+                            row_data[col_mapping.db_column] = col_mapping.apply_lookup(csv_value)
 
                     # Add filename values if configured
                     if job.filename_to_column and filename_values:
@@ -1112,7 +1118,9 @@ class DatabaseConnection:
                     row_data = {}
                     for col_mapping in sync_columns:
                         if col_mapping.csv_column in row:
-                            row_data[col_mapping.db_column] = row[col_mapping.csv_column]
+                            csv_value = row[col_mapping.csv_column]
+                            # Apply lookup transformation if configured
+                            row_data[col_mapping.db_column] = col_mapping.apply_lookup(csv_value)
 
                     # Add filename values if configured
                     if job.filename_to_column and filename_values:
