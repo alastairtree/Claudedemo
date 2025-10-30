@@ -193,6 +193,7 @@ class SyncJob:
         columns: list[ColumnMapping] | None = None,
         filename_to_column: FilenameToColumn | None = None,
         indexes: list[Index] | None = None,
+        sample_percentage: float | None = None,
     ) -> None:
         """Initialize a sync job.
 
@@ -203,6 +204,9 @@ class SyncJob:
             columns: List of column mappings to sync (all columns if None)
             filename_to_column: Optional filename-to-column extraction configuration
             indexes: Optional list of database indexes to create
+            sample_percentage: Optional percentage of rows to sample (0-100). If None or 100,
+                              syncs all rows. Values like 10 mean 1 in every 10 rows.
+                              Always includes first and last row.
         """
         self.name = name
         self.target_table = target_table
@@ -210,6 +214,13 @@ class SyncJob:
         self.columns = columns or []
         self.filename_to_column = filename_to_column
         self.indexes = indexes or []
+        self.sample_percentage = sample_percentage
+
+        # Validate sample_percentage
+        if sample_percentage is not None and not (0 <= sample_percentage <= 100):
+            raise ValueError(
+                f"sample_percentage must be between 0 and 100, got {sample_percentage}"
+            )
 
 
 class SyncConfig:
@@ -275,6 +286,9 @@ class SyncConfig:
                   salary:
                     db_column: monthly_salary
                     type: float
+                sample_percentage: 10  # Optional: sync only 10% of rows (1 in 10)
+                                       # Always includes first and last row
+                                       # Omit or set to 100 to sync all rows
                 filename_to_column:  # Optional: extract values from filename
                   template: "[mission]level2[sensor]_[date]_v[version].cdf"
                   # OR use regex with named groups:
@@ -492,6 +506,18 @@ class SyncConfig:
 
                 indexes.append(Index(name=idx_data["name"], columns=idx_columns))
 
+        # Parse optional sample_percentage
+        sample_percentage = None
+        if "sample_percentage" in job_data and job_data["sample_percentage"] is not None:
+            sample_percentage = job_data["sample_percentage"]
+            # Validate it's a number
+            if not isinstance(sample_percentage, (int, float)):
+                raise ValueError(f"Job '{name}' sample_percentage must be a number")
+            if not (0 <= sample_percentage <= 100):
+                raise ValueError(
+                    f"Job '{name}' sample_percentage must be between 0 and 100, got {sample_percentage}"
+                )
+
         return SyncJob(
             name=name,
             target_table=job_data["target_table"],
@@ -499,6 +525,7 @@ class SyncConfig:
             columns=columns if columns else None,
             filename_to_column=filename_to_column,
             indexes=indexes if indexes else None,
+            sample_percentage=sample_percentage,
         )
 
     def add_or_update_job(self, job: SyncJob, force: bool = False) -> bool:
@@ -598,6 +625,10 @@ class SyncConfig:
                     }
                     indexes_list.append(index_dict)
                 job_dict["indexes"] = indexes_list
+
+            # Add sample_percentage if present and not default
+            if job.sample_percentage is not None and job.sample_percentage != 100:
+                job_dict["sample_percentage"] = job.sample_percentage
 
             jobs_dict[job_name] = job_dict
 

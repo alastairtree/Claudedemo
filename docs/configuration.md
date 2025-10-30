@@ -27,6 +27,7 @@ Each job has the following fields:
 | `columns` | dict | No | Column mappings (CSV → DB). If omitted, syncs all columns |
 | `filename_to_column` | object | No | Extract values from filename to database columns |
 | `indexes` | list | No | Database indexes to create |
+| `sample_percentage` | float | No | Percentage of rows to sync (0-100). If omitted or 100, syncs all rows |
 
 ### ID Mapping
 
@@ -202,6 +203,71 @@ Suggestion rules:
 - **Date/datetime columns**: Get descending indexes (for recent-first queries)
 - **Columns ending in `_id` or `_key`**: Get ascending indexes (for foreign key lookups)
 - **ID column**: Excluded (already a primary key)
+
+### Row Sampling
+
+For large datasets, you can sync only a percentage of rows using the `sample_percentage` option. This is useful for:
+
+- Testing sync jobs with large datasets
+- Creating representative samples for development/staging environments
+- Reducing sync time and database load
+
+```yaml
+jobs:
+  large_dataset:
+    target_table: events
+    id_mapping:
+      event_id: id
+    sample_percentage: 10  # Sync 10% of rows (1 in every 10)
+```
+
+#### Sampling Behavior
+
+- **Value range**: 0-100 (float values allowed, e.g., 12.5 for 12.5%)
+- **Default**: `null` or `100` syncs all rows
+- **First row**: Always included (regardless of percentage)
+- **Last row**: Always included (regardless of percentage)
+- **Interval**: Calculated as `100 / sample_percentage`
+
+**Examples:**
+
+- `sample_percentage: 10` → Syncs rows at indices 0, 10, 20, 30, ... and last row
+- `sample_percentage: 50` → Syncs rows at indices 0, 2, 4, 6, 8, ... and last row
+- `sample_percentage: 25` → Syncs rows at indices 0, 4, 8, 12, ... and last row
+
+#### Example Use Cases
+
+**Testing Configuration:**
+```yaml
+# Development environment - 1% sample for quick testing
+dev_events:
+  target_table: events
+  id_mapping:
+    event_id: id
+  sample_percentage: 1
+```
+
+**Staging Environment:**
+```yaml
+# Staging - 10% sample for representative testing
+staging_events:
+  target_table: events
+  id_mapping:
+    event_id: id
+  sample_percentage: 10
+```
+
+**Production:**
+```yaml
+# Production - full sync (omit sample_percentage)
+prod_events:
+  target_table: events
+  id_mapping:
+    event_id: id
+```
+
+!!! note
+    Sampling is deterministic based on row position, not random. The same file will always produce the same sample. First and last rows are always included to ensure edge cases are tested.
 
 ## Complete Example
 
