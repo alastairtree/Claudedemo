@@ -8,7 +8,8 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from data_sync.cdf_extractor import extract_cdf_to_csv
+from data_sync.cdf_extractor import extract_cdf_to_csv, extract_cdf_with_config
+from data_sync.config import SyncConfig
 
 console = Console()
 
@@ -68,6 +69,20 @@ def format_file_size(size_bytes: int) -> str:
     default=None,
     help="Maximum number of records to extract per variable (default: extract all records)",
 )
+@click.option(
+    "--config",
+    "-c",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="YAML configuration file for column mapping (requires --job). Applies same transformations as sync command.",
+)
+@click.option(
+    "--job",
+    "-j",
+    type=str,
+    default=None,
+    help="Job name from config file to use for column selection and mapping (requires --config).",
+)
 def extract(
     files: tuple[Path, ...],
     output_path: Path | None,
@@ -76,17 +91,23 @@ def extract(
     append: bool,
     variables: tuple[str, ...],
     max_records: int | None,
+    config: Path | None,
+    job: str | None,
 ) -> None:
     """Extract data from CDF files to CSV format.
 
     Reads CDF science data files and extracts variable data into CSV files.
     Variables with array data are expanded into multiple columns with sensible names.
 
+    When using --config and --job, the extract command applies the same column mappings
+    and transformations that would be used by the sync command, but outputs to CSV
+    instead of a database.
+
     Arguments:
         FILES: One or more CDF files to extract data from
 
     Examples:
-        # Extract all variables from a CDF file
+        # Extract all variables from a CDF file (raw dump)
         data-sync extract data.cdf
 
         # Extract to a specific directory with custom filename
@@ -103,6 +124,159 @@ def extract(
 
         # Extract multiple files with auto-merge enabled
         data-sync extract *.cdf -o csv_output/
+
+        # Extract using config file (applies column mappings and transformations)
+        data-sync extract data.cdf -o output/ --config config.yaml --job my_job
+
+        # Extract with config and limited records
+        data-sync extract data.cdf --config config.yaml --job my_job --max-records 100
+    """
+    try:
+        # Validate config/job parameters
+        if (config is None) != (job is None):
+            console.print(
+                "[red]Error:[/red] --config and --job must be used together. "
+                "Either provide both or neither."
+            )
+            raise click.Abort()
+
+        # Check for incompatible options when using config mode
+        if config and job:
+            if variables:
+                console.print(
+                    "[yellow]Warning:[/yellow] --variables option is ignored when using --config and --job"
+                )
+            if not automerge:
+                console.print(
+                    "[yellow]Warning:[/yellow] --no-automerge option is ignored when using --config and --job"
+                )
+            if append:
+                console.print(
+                    "[yellow]Warning:[/yellow] --append option is ignored when using --config and --job"
+                )
+            if filename != "[SOURCE_FILE]-[VARIABLE_NAME].csv":
+                console.print(
+                    "[yellow]Warning:[/yellow] --filename option is ignored when using --config and --job"
+                )
+
+        # Mode 1: Config-based extraction (applies column mappings)
+        if config and job:
+            return _extract_with_config(files, output_path, config, job, max_records)
+
+        # Mode 2: Raw extraction (current behavior)
+        return _extract_raw(files, output_path, filename, automerge, append, variables, max_records)
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise click.Abort() from e
+
+
+def _extract_with_config(
+    files: tuple[Path, ...],
+    output_path: Path | None,
+    config_path: Path,
+    job_name: str,
+    max_records: int | None,
+) -> None:
+    """Extract CDF files using config-based column mapping.
+
+    Args:
+        files: CDF files to extract
+        output_path: Output directory for CSV files
+        config_path: Path to YAML config file
+        job_name: Job name from config
+        max_records: Maximum records to extract
+    """
+    # Load configuration
+    sync_config = SyncConfig.from_yaml(config_path)
+
+    # Get the specified job
+    sync_job = sync_config.get_job(job_name)
+    if not sync_job:
+        available_jobs = ", ".join(sync_config.jobs.keys())
+        console.print(f"[red]Error:[/red] Job '{job_name}' not found in config")
+        console.print(f"[dim]Available jobs: {available_jobs}[/dim]")
+        raise click.Abort()
+
+    # Determine output directory
+    output_dir = output_path if output_path else Path.cwd()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    console.print(f"[cyan]Extracting {len(files)} CDF file(s) with config-based mapping...[/cyan]")
+    console.print(f"[dim]  Config: {config_path.name}[/dim]")
+    console.print(f"[dim]  Job: {job_name}[/dim]")
+    console.print(f"[dim]  Output directory: {output_dir}[/dim]")
+    if max_records is not None:
+        console.print(f"[dim]  Max records: {max_records:,}[/dim]")
+    console.print()
+
+    total_rows = 0
+    for cdf_file in files:
+        console.print(f"[bold]Processing:[/bold] {cdf_file.name}")
+
+        try:
+            # Generate output filename based on CDF file name
+            output_file = output_dir / f"{cdf_file.stem}.csv"
+
+            result = extract_cdf_with_config(
+                cdf_file_path=cdf_file,
+                output_path=output_file,
+                job=sync_job,
+                max_records=max_records,
+            )
+
+            # Display results
+            table = Table(show_header=True, box=None, padding=(0, 1))
+            table.add_column("Output File", style="cyan")
+            table.add_column("Columns", justify="right", style="green")
+            table.add_column("Rows", justify="right", style="magenta")
+            table.add_column("Size", justify="right", style="dim")
+
+            table.add_row(
+                result.output_file.name,
+                str(result.num_columns),
+                f"{result.num_rows:,}",
+                format_file_size(result.file_size),
+            )
+
+            console.print(table)
+            console.print()
+
+            total_rows += result.num_rows
+
+        except ValueError as e:
+            console.print(f"[red]Error processing {cdf_file.name}:[/red] {e}\n")
+            continue
+        except Exception as e:
+            console.print(f"[red]Unexpected error processing {cdf_file.name}:[/red] {e}\n")
+            continue
+
+    # Final summary
+    console.print("[bold green]✓ Extraction complete[/bold green]")
+    console.print(f"[dim]  Created {len(files)} CSV file(s)[/dim]")
+    console.print(f"[dim]  Total rows extracted: {total_rows:,}[/dim]")
+    console.print(f"[dim]  Output directory: {output_dir.absolute()}[/dim]")
+
+
+def _extract_raw(
+    files: tuple[Path, ...],
+    output_path: Path | None,
+    filename: str,
+    automerge: bool,
+    append: bool,
+    variables: tuple[str, ...],
+    max_records: int | None,
+) -> None:
+    """Extract CDF files with raw dump (original behavior).
+
+    Args:
+        files: CDF files to extract
+        output_path: Output directory for CSV files
+        filename: Filename template
+        automerge: Whether to merge variables
+        append: Whether to append to existing files
+        variables: Specific variables to extract
+        max_records: Maximum records to extract
     """
     try:
         # Determine output directory

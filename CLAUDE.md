@@ -69,6 +69,7 @@ uv run mkdocs serve
 - Main entry point with Click-based commands
 - Commands: `sync`, `prepare`, `inspect`, `extract`
 - Each command has dedicated module (e.g., `cli_sync.py`)
+- `extract` command supports both raw CDF dump and config-based extraction with column mapping
 
 **Configuration System** (`config.py`):
 - YAML-based job configuration with `SyncConfig` and `SyncJob` classes
@@ -89,6 +90,8 @@ uv run mkdocs serve
 **CDF Support** (`cdf_*.py`):
 - Reading and extracting CDF (Common Data Format) science files
 - Conversion to CSV for database sync
+- Config-based extraction with column mapping and transformations
+- Two extraction modes: raw dump or config-based with same transformations as sync
 
 ### Key Features
 
