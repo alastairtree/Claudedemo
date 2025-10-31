@@ -846,6 +846,18 @@ class DatabaseConnection:
         """
         id_csv_columns = set()
         for id_col in job.id_mapping:
+            # Skip validation for custom functions (no csv_column)
+            if id_col.csv_column is None:
+                # Custom function - validate input columns instead
+                if id_col.input_columns:
+                    for input_col in id_col.input_columns:
+                        if input_col not in csv_columns:
+                            raise ValueError(
+                                f"Input column '{input_col}' for custom function "
+                                f"'{id_col.db_column}' not found in CSV"
+                            )
+                continue
+
             if id_col.csv_column not in csv_columns:
                 raise ValueError(f"ID column '{id_col.csv_column}' not found in CSV")
             id_csv_columns.add(id_col.csv_column)
@@ -871,6 +883,18 @@ class DatabaseConnection:
             # Specific columns defined
             sync_columns = list(job.id_mapping) + job.columns
             for col_mapping in job.columns:
+                # Skip validation for custom functions (no csv_column)
+                if col_mapping.csv_column is None:
+                    # Custom function - validate input columns instead
+                    if col_mapping.input_columns:
+                        for input_col in col_mapping.input_columns:
+                            if input_col not in csv_columns:
+                                raise ValueError(
+                                    f"Input column '{input_col}' for custom function "
+                                    f"'{col_mapping.db_column}' not found in CSV"
+                                )
+                    continue
+
                 if col_mapping.csv_column not in csv_columns:
                     raise ValueError(f"Column '{col_mapping.csv_column}' not found in CSV")
         else:
@@ -1015,7 +1039,11 @@ class DatabaseConnection:
 
                 row_data = {}
                 for col_mapping in sync_columns:
-                    if col_mapping.csv_column in row:
+                    # Check if this column uses a custom function/expression
+                    if col_mapping.expression or col_mapping.function:
+                        # Apply custom function/expression
+                        row_data[col_mapping.db_column] = col_mapping.apply_custom_function(row)
+                    elif col_mapping.csv_column in row:
                         csv_value = row[col_mapping.csv_column]
                         # Apply lookup transformation if configured
                         row_data[col_mapping.db_column] = col_mapping.apply_lookup(csv_value)
@@ -1037,7 +1065,11 @@ class DatabaseConnection:
             for row in reader:
                 row_data = {}
                 for col_mapping in sync_columns:
-                    if col_mapping.csv_column in row:
+                    # Check if this column uses a custom function/expression
+                    if col_mapping.expression or col_mapping.function:
+                        # Apply custom function/expression
+                        row_data[col_mapping.db_column] = col_mapping.apply_custom_function(row)
+                    elif col_mapping.csv_column in row:
                         csv_value = row[col_mapping.csv_column]
                         # Apply lookup transformation if configured
                         row_data[col_mapping.db_column] = col_mapping.apply_lookup(csv_value)
@@ -1097,7 +1129,11 @@ class DatabaseConnection:
 
                     row_data = {}
                     for col_mapping in sync_columns:
-                        if col_mapping.csv_column in row:
+                        # Check if this column uses a custom function/expression
+                        if col_mapping.expression or col_mapping.function:
+                            # Apply custom function/expression
+                            row_data[col_mapping.db_column] = col_mapping.apply_custom_function(row)
+                        elif col_mapping.csv_column in row:
                             csv_value = row[col_mapping.csv_column]
                             # Apply lookup transformation if configured
                             row_data[col_mapping.db_column] = col_mapping.apply_lookup(csv_value)
@@ -1117,7 +1153,11 @@ class DatabaseConnection:
                 for row in reader:
                     row_data = {}
                     for col_mapping in sync_columns:
-                        if col_mapping.csv_column in row:
+                        # Check if this column uses a custom function/expression
+                        if col_mapping.expression or col_mapping.function:
+                            # Apply custom function/expression
+                            row_data[col_mapping.db_column] = col_mapping.apply_custom_function(row)
+                        elif col_mapping.csv_column in row:
                             csv_value = row[col_mapping.csv_column]
                             # Apply lookup transformation if configured
                             row_data[col_mapping.db_column] = col_mapping.apply_lookup(csv_value)

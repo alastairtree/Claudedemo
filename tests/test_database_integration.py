@@ -1361,3 +1361,258 @@ jobs:
         assert rows_db[0] == ("1", 1, 3)  # pending -> 1, high -> 3
         assert rows_db[1] == ("2", 2, 1)  # shipped -> 2, low -> 1
         assert rows_db[2] == ("3", 3, 2)  # delivered -> 3, medium -> 2
+
+
+class TestCustomFunctions:
+    """Integration tests for custom function column mappings."""
+
+    def test_sync_with_expression(self, tmp_path: Path, db_url: str) -> None:
+        """Test syncing with inline expression for calculated column."""
+        from tests.test_helpers import create_csv_file
+
+        # Create CSV with resource usage data
+        csv_file = tmp_path / "resources.csv"
+        rows = [
+            {"id": "1", "consumed": "30", "total_available": "100"},
+            {"id": "2", "consumed": "75", "total_available": "150"},
+            {"id": "3", "consumed": "10", "total_available": "50"},
+        ]
+        create_csv_file(csv_file, ["id", "consumed", "total_available"], rows)
+
+        # Create config with expression for percentage calculation
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_expression:
+    target_table: resources_expr
+    id_mapping:
+      id: id
+    columns:
+      consumed: consumed
+      total_available: total_available
+      ~:
+        db_column: percentage_available
+        expression: "((float(total_available) - float(consumed)) / float(total_available)) * 100"
+        input_columns: [consumed, total_available]
+        type: float
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_expression")
+        assert job is not None
+
+        # Sync with expression
+        rows_synced = sync_csv_to_postgres(csv_file, job, db_url)
+        assert rows_synced == 3
+
+        # Verify calculated column
+        rows_db = execute_query(
+            db_url,
+            "SELECT id, consumed, total_available, percentage_available FROM resources_expr ORDER BY id",
+        )
+        assert len(rows_db) == 3
+        assert rows_db[0] == ("1", "30", "100", 70.0)
+        assert rows_db[1] == ("2", "75", "150", 50.0)
+        assert rows_db[2] == ("3", "10", "50", 80.0)
+
+    def test_sync_with_external_function(self, tmp_path: Path, db_url: str) -> None:
+        """Test syncing with external function for calculated column."""
+        from tests.test_helpers import create_csv_file
+
+        # Create CSV with resource usage data
+        csv_file = tmp_path / "resources.csv"
+        rows = [
+            {"id": "1", "consumed": "30", "total_available": "100"},
+            {"id": "2", "consumed": "50", "total_available": "200"},
+        ]
+        create_csv_file(csv_file, ["id", "consumed", "total_available"], rows)
+
+        # Create config with external function
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_function:
+    target_table: resources_func
+    id_mapping:
+      id: id
+    columns:
+      consumed: consumed
+      total_available: total_available
+      ~:
+        db_column: percentage_available
+        function: "tests.custom_functions.calculate_percentage"
+        input_columns: [consumed, total_available]
+        type: float
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_function")
+        assert job is not None
+
+        # Sync with function
+        rows_synced = sync_csv_to_postgres(csv_file, job, db_url)
+        assert rows_synced == 2
+
+        # Verify calculated column
+        rows_db = execute_query(
+            db_url,
+            "SELECT id, consumed, total_available, percentage_available FROM resources_func ORDER BY id",
+        )
+        assert len(rows_db) == 2
+        assert rows_db[0] == ("1", "30", "100", 70.0)
+        assert rows_db[1] == ("2", "50", "200", 75.0)
+
+    def test_sync_with_string_concatenation(self, tmp_path: Path, db_url: str) -> None:
+        """Test syncing with custom function for string concatenation."""
+        from tests.test_helpers import create_csv_file
+
+        # Create CSV with name parts
+        csv_file = tmp_path / "names.csv"
+        rows = [
+            {"id": "1", "first_name": "John", "last_name": "Doe"},
+            {"id": "2", "first_name": "Jane", "last_name": "Smith"},
+        ]
+        create_csv_file(csv_file, ["id", "first_name", "last_name"], rows)
+
+        # Create config with external function for concatenation
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_concat:
+    target_table: names_concat
+    id_mapping:
+      id: id
+    columns:
+      first_name: first_name
+      last_name: last_name
+      ~:
+        db_column: full_name
+        function: "tests.custom_functions.concatenate_strings"
+        input_columns: [first_name, last_name]
+        type: text
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_concat")
+        assert job is not None
+
+        # Sync with function
+        rows_synced = sync_csv_to_postgres(csv_file, job, db_url)
+        assert rows_synced == 2
+
+        # Verify concatenated column
+        rows_db = execute_query(
+            db_url,
+            "SELECT id, first_name, last_name, full_name FROM names_concat ORDER BY id",
+        )
+        assert len(rows_db) == 2
+        assert rows_db[0] == ("1", "John", "Doe", "John Doe")
+        assert rows_db[1] == ("2", "Jane", "Smith", "Jane Smith")
+
+    def test_sync_with_multiple_custom_functions(self, tmp_path: Path, db_url: str) -> None:
+        """Test syncing with multiple custom function columns."""
+        from tests.test_helpers import create_csv_file
+
+        # Create CSV with order data
+        csv_file = tmp_path / "orders.csv"
+        rows = [
+            {
+                "order_id": "1",
+                "price": "10.5",
+                "quantity": "3",
+                "first_name": "John",
+                "last_name": "Doe",
+            },
+            {
+                "order_id": "2",
+                "price": "25.0",
+                "quantity": "2",
+                "first_name": "Jane",
+                "last_name": "Smith",
+            },
+        ]
+        create_csv_file(
+            csv_file, ["order_id", "price", "quantity", "first_name", "last_name"], rows
+        )
+
+        # Create config with multiple custom functions
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_multi:
+    target_table: orders_multi
+    id_mapping:
+      order_id: id
+    columns:
+      price: price
+      quantity: quantity
+      ~:
+        db_column: total_price
+        function: "tests.custom_functions.calculate_total"
+        input_columns: [price, quantity]
+        type: float
+      ~:
+        db_column: customer_name
+        function: "tests.custom_functions.concatenate_strings"
+        input_columns: [first_name, last_name]
+        type: text
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_multi")
+        assert job is not None
+
+        # Sync with multiple functions
+        rows_synced = sync_csv_to_postgres(csv_file, job, db_url)
+        assert rows_synced == 2
+
+        # Verify both calculated columns
+        rows_db = execute_query(
+            db_url,
+            "SELECT id, price, quantity, total_price, customer_name FROM orders_multi ORDER BY id",
+        )
+        assert len(rows_db) == 2
+        assert rows_db[0] == ("1", "10.5", "3", 31.5, "John Doe")
+        assert rows_db[1] == ("2", "25.0", "2", 50.0, "Jane Smith")
+
+    def test_dry_run_with_custom_function(self, tmp_path: Path, db_url: str) -> None:
+        """Test dry-run mode with custom function."""
+        from data_sync.database import sync_csv_to_postgres_dry_run
+        from tests.test_helpers import create_csv_file
+
+        # Create CSV
+        csv_file = tmp_path / "data.csv"
+        rows = [
+            {"id": "1", "consumed": "40", "total_available": "100"},
+            {"id": "2", "consumed": "20", "total_available": "80"},
+        ]
+        create_csv_file(csv_file, ["id", "consumed", "total_available"], rows)
+
+        # Create config with expression
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_dryrun:
+    target_table: dryrun_func
+    id_mapping:
+      id: id
+    columns:
+      ~:
+        db_column: percentage
+        expression: "((float(total_available) - float(consumed)) / float(total_available)) * 100"
+        input_columns: [consumed, total_available]
+        type: float
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_dryrun")
+        assert job is not None
+
+        # Run dry-run
+        summary = sync_csv_to_postgres_dry_run(csv_file, job, db_url)
+
+        assert summary.table_name == "dryrun_func"
+        assert not summary.table_exists
+        assert summary.rows_to_sync == 2
+        assert ("id", "TEXT") in summary.new_columns
+        assert ("percentage", "REAL") in summary.new_columns
