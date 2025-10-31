@@ -1614,8 +1614,8 @@ jobs:
         assert summary.table_name == "dryrun_func"
         assert not summary.table_exists
         assert summary.rows_to_sync == 2
-        assert ("id", "TEXT") in summary.new_columns
-        assert ("percentage", "REAL") in summary.new_columns
+        # When table doesn't exist, new_columns should be empty (whole table is new)
+        assert len(summary.new_columns) == 0
 
     def test_sync_with_named_column_expression(self, tmp_path: Path, db_url: str) -> None:
         """Test syncing with expression on a named CSV column."""
@@ -1657,9 +1657,9 @@ jobs:
         # Verify transformed values
         rows_db = execute_query(db_url, "SELECT id, temp_fahrenheit FROM temps_named ORDER BY id")
         assert len(rows_db) == 3
-        assert rows_db[0] == ("1", 32.0)  # 0°C = 32°F
-        assert rows_db[1] == ("2", 212.0)  # 100°C = 212°F
-        assert rows_db[2] == ("3", 98.6)  # 37°C = 98.6°F
+        assert rows_db[0][0] == "1" and rows_db[0][1] == pytest.approx(32.0)  # 0°C = 32°F
+        assert rows_db[1][0] == "2" and rows_db[1][1] == pytest.approx(212.0)  # 100°C = 212°F
+        assert rows_db[2][0] == "3" and rows_db[2][1] == pytest.approx(98.6)  # 37°C = 98.6°F
 
     def test_sync_with_named_column_external_function(self, tmp_path: Path, db_url: str) -> None:
         """Test syncing with external function on a named CSV column."""

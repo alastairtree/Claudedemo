@@ -10,6 +10,44 @@ from typing import Any
 import yaml  # type: ignore[import-untyped]
 
 
+class DuplicateKeySafeLoader(yaml.SafeLoader):
+    """Custom YAML loader that handles duplicate null keys by converting them to a list."""
+
+    pass
+
+
+def dict_constructor(loader: yaml.Loader, node: yaml.Node) -> dict[Any, Any]:
+    """Custom dict constructor that preserves duplicate null keys in a list.
+
+    When a dict has multiple entries with None (null/~) as the key, instead of
+    overwriting them, collect them all in a list under the None key.
+    """
+    pairs = loader.construct_pairs(node)
+    result: dict[Any, Any] = {}
+
+    for key, value in pairs:
+        if key is None and key in result:
+            # Duplicate null key found
+            if not isinstance(result[None], list):
+                # Convert first occurrence to list
+                result[None] = [result[None]]
+            result[None].append(value)
+        elif key is None and any(k is None for k, _ in pairs[:pairs.index((key, value))]):
+            # This is not the first null key, skip (already handled above)
+            continue
+        else:
+            result[key] = value
+
+    return result
+
+
+# Register the custom constructor
+DuplicateKeySafeLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    dict_constructor
+)
+
+
 class ColumnMapping:
     """Mapping between CSV and database columns."""
 
@@ -439,7 +477,7 @@ class SyncConfig:
             raise FileNotFoundError(f"Config file not found: {config_path}")
 
         with open(config_path, encoding="utf-8") as f:
-            data = yaml.safe_load(f)
+            data = yaml.load(f, Loader=DuplicateKeySafeLoader)
 
         if not data or "jobs" not in data:
             raise ValueError("Config file must contain 'jobs' section")
@@ -571,7 +609,12 @@ class SyncConfig:
                 raise ValueError(f"Job '{name}' columns must be a dictionary")
 
             for csv_col, value in col_data.items():
-                columns.append(SyncConfig._parse_column_mapping(csv_col, value, name))
+                # Handle multiple custom functions with null keys (collected as list)
+                if csv_col is None and isinstance(value, list):
+                    for item in value:
+                        columns.append(SyncConfig._parse_column_mapping(csv_col, item, name))
+                else:
+                    columns.append(SyncConfig._parse_column_mapping(csv_col, value, name))
 
         # Parse optional filename_to_column
         filename_to_column = None
