@@ -32,7 +32,7 @@ def dict_constructor(loader: yaml.Loader, node: yaml.Node) -> dict[Any, Any]:
                 # Convert first occurrence to list
                 result[None] = [result[None]]
             result[None].append(value)
-        elif key is None and any(k is None for k, _ in pairs[:pairs.index((key, value))]):
+        elif key is None and any(k is None for k, _ in pairs[: pairs.index((key, value))]):
             # This is not the first null key, skip (already handled above)
             continue
         else:
@@ -43,8 +43,7 @@ def dict_constructor(loader: yaml.Loader, node: yaml.Node) -> dict[Any, Any]:
 
 # Register the custom constructor
 DuplicateKeySafeLoader.add_constructor(
-    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
-    dict_constructor
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, dict_constructor
 )
 
 

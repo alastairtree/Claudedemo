@@ -332,7 +332,7 @@ def inspect_cdf(file_path: Path, num_records: int) -> None:
 
 
 @click.command()
-@click.argument("files", nargs=-1, type=click.Path(exists=True, path_type=Path), required=True)  # type: ignore[type-var]
+@click.argument("files", nargs=-1, type=click.Path(exists=True, path_type=Path), required=True)
 @click.option(
     "--max-records",
     "-n",

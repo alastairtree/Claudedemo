@@ -312,12 +312,12 @@ def _display_prepare_results(
 
 
 @click.command()
-@click.argument("file_paths", nargs=-1, type=click.Path(exists=True, path_type=Path), required=True)  # type: ignore[type-var]
+@click.argument("file_paths", nargs=-1, type=click.Path(exists=True, path_type=Path), required=True)
 @click.option(
     "--config",
     "-c",
     "config",
-    type=click.Path(path_type=Path),  # type: ignore[type-var]
+    type=click.Path(path_type=Path),
     required=True,
     help="Path to the YAML configuration file",
 )
