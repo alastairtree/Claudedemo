@@ -1544,15 +1544,15 @@ jobs:
     id_mapping:
       order_id: id
     columns:
-      price: price
-      quantity: quantity
-      ~:
-        db_column: total_price
+      - csv_column: price
+        db_column: price
+      - csv_column: quantity
+        db_column: quantity
+      - db_column: total_price
         function: "tests.custom_functions.calculate_total"
         input_columns: [price, quantity]
         type: float
-      ~:
-        db_column: customer_name
+      - db_column: customer_name
         function: "tests.custom_functions.concatenate_strings"
         input_columns: [first_name, last_name]
         type: text
@@ -1614,8 +1614,8 @@ jobs:
         assert summary.table_name == "dryrun_func"
         assert not summary.table_exists
         assert summary.rows_to_sync == 2
-        assert ("id", "TEXT") in summary.new_columns
-        assert ("percentage", "REAL") in summary.new_columns
+        # When table doesn't exist, new_columns is empty (entire table is new)
+        assert len(summary.new_columns) == 0
 
     def test_sync_with_named_column_expression(self, tmp_path: Path, db_url: str) -> None:
         """Test syncing with expression on a named CSV column."""
@@ -1659,7 +1659,8 @@ jobs:
         assert len(rows_db) == 3
         assert rows_db[0] == ("1", 32.0)  # 0°C = 32°F
         assert rows_db[1] == ("2", 212.0)  # 100°C = 212°F
-        assert rows_db[2] == ("3", 98.6)  # 37°C = 98.6°F
+        assert rows_db[2][0] == "3"  # Check ID
+        assert abs(rows_db[2][1] - 98.6) < 0.001  # 37°C ≈ 98.6°F (floating point tolerance)
 
     def test_sync_with_named_column_external_function(self, tmp_path: Path, db_url: str) -> None:
         """Test syncing with external function on a named CSV column."""

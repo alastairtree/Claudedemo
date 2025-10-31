@@ -563,15 +563,26 @@ class SyncConfig:
         for csv_col, value in id_data.items():
             id_mapping.append(SyncConfig._parse_column_mapping(csv_col, value, name))
 
-        # Parse columns as a dict: {csv_column: db_column} or {csv_column: {db_column: x, type: y}}
+        # Parse columns as a dict: {csv_column: db_column} or list: [{csv_column: x, ...}, ...]
         columns = []
         if "columns" in job_data and job_data["columns"]:
             col_data = job_data["columns"]
-            if not isinstance(col_data, dict):
-                raise ValueError(f"Job '{name}' columns must be a dictionary")
-
-            for csv_col, value in col_data.items():
-                columns.append(SyncConfig._parse_column_mapping(csv_col, value, name))
+            if isinstance(col_data, dict):
+                # Dictionary format: {csv_column: db_column} or {csv_column: {db_column: x, type: y}}
+                for csv_col, value in col_data.items():
+                    columns.append(SyncConfig._parse_column_mapping(csv_col, value, name))
+            elif isinstance(col_data, list):
+                # List format: [{csv_column: x, db_column: y, ...}, ...]
+                for item in col_data:
+                    if not isinstance(item, dict):
+                        raise ValueError(f"Job '{name}' columns list items must be dictionaries")
+                    # Extract csv_column from the dict
+                    csv_col = item.get("csv_column")
+                    # Create a copy without csv_column for parsing
+                    item_copy = {k: v for k, v in item.items() if k != "csv_column"}
+                    columns.append(SyncConfig._parse_column_mapping(csv_col, item_copy, name))
+            else:
+                raise ValueError(f"Job '{name}' columns must be a dictionary or list")
 
         # Parse optional filename_to_column
         filename_to_column = None
