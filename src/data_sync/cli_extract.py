@@ -31,11 +31,11 @@ def format_file_size(size_bytes: int) -> str:
 
 
 @click.command()
-@click.argument("files", nargs=-1, type=click.Path(exists=True, path_type=Path), required=True)  # type: ignore[type-var]
+@click.argument("files", nargs=-1, type=click.Path(exists=True, path_type=Path), required=True)
 @click.option(
     "--output-path",
     "-o",
-    type=click.Path(path_type=Path),  # type: ignore[type-var]
+    type=click.Path(path_type=Path),
     default=None,
     help="Output directory for CSV files (default: current directory)",
 )
