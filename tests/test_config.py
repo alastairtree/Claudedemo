@@ -1064,3 +1064,273 @@ jobs:
         # Read file and check lookup is not present
         content = config_file.read_text()
         assert "lookup" not in content
+
+
+class TestCustomFunctions:
+    """Test suite for custom function and expression column mappings."""
+
+    def test_load_config_with_expression(self, tmp_path: Path) -> None:
+        """Test loading config with inline expression."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: metrics
+    id_mapping:
+      id: id
+    columns:
+      consumed: consumed
+      total_available: total_available
+      ~:
+        db_column: percentage_available
+        expression: "((float(total_available) - float(consumed)) / float(total_available)) * 100"
+        input_columns: [consumed, total_available]
+        type: float
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_job")
+        assert job is not None
+        assert len(job.columns) == 3
+
+        # Find the custom function column
+        custom_col = [c for c in job.columns if c.db_column == "percentage_available"][0]
+        assert custom_col.csv_column is None
+        assert (
+            custom_col.expression
+            == "((float(total_available) - float(consumed)) / float(total_available)) * 100"
+        )
+        assert custom_col.input_columns == ["consumed", "total_available"]
+        assert custom_col.data_type == "float"
+
+    def test_load_config_with_function(self, tmp_path: Path) -> None:
+        """Test loading config with external function reference."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: metrics
+    id_mapping:
+      id: id
+    columns:
+      ~:
+        db_column: calculated_value
+        function: "my_functions.calculate_percentage"
+        input_columns: [value1, value2]
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_job")
+        assert job is not None
+        assert len(job.columns) == 1
+
+        custom_col = job.columns[0]
+        assert custom_col.csv_column is None
+        assert custom_col.function == "my_functions.calculate_percentage"
+        assert custom_col.input_columns == ["value1", "value2"]
+
+    def test_apply_expression(self) -> None:
+        """Test applying inline expression to row data."""
+        from data_sync.config import ColumnMapping
+
+        col_mapping = ColumnMapping(
+            csv_column=None,
+            db_column="percentage",
+            expression="((float(total) - float(consumed)) / float(total)) * 100",
+            input_columns=["consumed", "total"],
+        )
+
+        row_data = {"consumed": "30", "total": "100", "id": "1"}
+        result = col_mapping.apply_custom_function(row_data)
+        assert result == 70.0
+
+    def test_apply_expression_with_math(self) -> None:
+        """Test expression with various math operations."""
+        from data_sync.config import ColumnMapping
+
+        col_mapping = ColumnMapping(
+            csv_column=None,
+            db_column="result",
+            expression="int(a) + float(b) * 2",
+            input_columns=["a", "b"],
+        )
+
+        row_data = {"a": "10", "b": "5.5"}
+        result = col_mapping.apply_custom_function(row_data)
+        assert result == 21.0
+
+    def test_expression_missing_input_column(self) -> None:
+        """Test error when input column is missing from row data."""
+        from data_sync.config import ColumnMapping
+
+        col_mapping = ColumnMapping(
+            csv_column=None,
+            db_column="result",
+            expression="a + b",
+            input_columns=["a", "b"],
+        )
+
+        row_data = {"a": "10"}  # Missing 'b'
+        with pytest.raises(ValueError, match="Input column 'b' not found"):
+            col_mapping.apply_custom_function(row_data)
+
+    def test_both_expression_and_function_raises_error(self) -> None:
+        """Test that specifying both expression and function raises error."""
+        from data_sync.config import ColumnMapping
+
+        with pytest.raises(ValueError, match="Cannot specify both 'expression' and 'function'"):
+            ColumnMapping(
+                csv_column=None,
+                db_column="result",
+                expression="a + b",
+                function="module.func",
+                input_columns=["a", "b"],
+            )
+
+    def test_custom_function_without_input_columns_raises_error(self) -> None:
+        """Test that custom function without input_columns raises error."""
+        from data_sync.config import ColumnMapping
+
+        with pytest.raises(ValueError, match="Must specify 'input_columns'"):
+            ColumnMapping(
+                csv_column=None,
+                db_column="result",
+                expression="a + b",
+                input_columns=None,
+            )
+
+    def test_custom_function_with_csv_column_raises_error(self) -> None:
+        """Test that custom function with csv_column raises error."""
+        from data_sync.config import ColumnMapping
+
+        with pytest.raises(ValueError, match="Cannot specify 'csv_column' when using 'expression'"):
+            ColumnMapping(
+                csv_column="some_column",
+                db_column="result",
+                expression="a + b",
+                input_columns=["a", "b"],
+            )
+
+    def test_invalid_expression_type(self, tmp_path: Path) -> None:
+        """Test that non-string expression raises error."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: metrics
+    id_mapping:
+      id: id
+    columns:
+      ~:
+        db_column: result
+        expression: 123
+        input_columns: [a, b]
+""")
+
+        with pytest.raises(ValueError, match="expression must be a string"):
+            SyncConfig.from_yaml(config_file)
+
+    def test_invalid_function_type(self, tmp_path: Path) -> None:
+        """Test that non-string function raises error."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: metrics
+    id_mapping:
+      id: id
+    columns:
+      ~:
+        db_column: result
+        function: ["not", "a", "string"]
+        input_columns: [a, b]
+""")
+
+        with pytest.raises(ValueError, match="function must be a string"):
+            SyncConfig.from_yaml(config_file)
+
+    def test_invalid_input_columns_type(self, tmp_path: Path) -> None:
+        """Test that non-list input_columns raises error."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: metrics
+    id_mapping:
+      id: id
+    columns:
+      ~:
+        db_column: result
+        expression: "a + b"
+        input_columns: "not a list"
+""")
+
+        with pytest.raises(ValueError, match="input_columns must be a list"):
+            SyncConfig.from_yaml(config_file)
+
+    def test_save_config_with_expression(self, tmp_path: Path) -> None:
+        """Test saving config with expression."""
+        from data_sync.config import ColumnMapping, SyncJob
+
+        job = SyncJob(
+            name="test_job",
+            target_table="metrics",
+            id_mapping=[ColumnMapping("id", "id")],
+            columns=[
+                ColumnMapping(
+                    csv_column=None,
+                    db_column="percentage",
+                    expression="(a / b) * 100",
+                    input_columns=["a", "b"],
+                    data_type="float",
+                )
+            ],
+        )
+
+        config = SyncConfig(jobs={"test_job": job})
+        config_file = tmp_path / "config.yaml"
+        config.save_to_yaml(config_file)
+
+        # Reload and verify
+        loaded_config = SyncConfig.from_yaml(config_file)
+        loaded_job = loaded_config.get_job("test_job")
+        assert loaded_job is not None
+        assert len(loaded_job.columns) == 1
+
+        custom_col = loaded_job.columns[0]
+        assert custom_col.csv_column is None
+        assert custom_col.expression == "(a / b) * 100"
+        assert custom_col.input_columns == ["a", "b"]
+
+    def test_save_config_with_function(self, tmp_path: Path) -> None:
+        """Test saving config with external function."""
+        from data_sync.config import ColumnMapping, SyncJob
+
+        job = SyncJob(
+            name="test_job",
+            target_table="metrics",
+            id_mapping=[ColumnMapping("id", "id")],
+            columns=[
+                ColumnMapping(
+                    csv_column=None,
+                    db_column="result",
+                    function="my_module.my_function",
+                    input_columns=["x", "y"],
+                )
+            ],
+        )
+
+        config = SyncConfig(jobs={"test_job": job})
+        config_file = tmp_path / "config.yaml"
+        config.save_to_yaml(config_file)
+
+        # Reload and verify
+        loaded_config = SyncConfig.from_yaml(config_file)
+        loaded_job = loaded_config.get_job("test_job")
+        assert loaded_job is not None
+        assert len(loaded_job.columns) == 1
+
+        custom_col = loaded_job.columns[0]
+        assert custom_col.csv_column is None
+        assert custom_col.function == "my_module.my_function"
+        assert custom_col.input_columns == ["x", "y"]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import re
 from pathlib import Path
 from typing import Any
@@ -14,28 +15,57 @@ class ColumnMapping:
 
     def __init__(
         self,
-        csv_column: str,
+        csv_column: str | None,
         db_column: str,
         data_type: str | None = None,
         nullable: bool | None = None,
         lookup: dict[str, Any] | None = None,
+        expression: str | None = None,
+        function: str | None = None,
+        input_columns: list[str] | None = None,
     ) -> None:
         """Initialize column mapping.
 
         Args:
-            csv_column: Name of the column in the CSV file
+            csv_column: Name of the column in the CSV file. Can be None for custom functions.
             db_column: Name of the column in the database
             data_type: Optional data type (integer, float, date, datetime, text, varchar(N))
             nullable: Optional flag indicating if NULL values are allowed (True=NULL, False=NOT NULL)
             lookup: Optional dictionary to map CSV values to database values.
                    Values not in the lookup are passed through unchanged.
                    Example: {"active": 1, "inactive": 0} to convert status strings to integers.
+            expression: Optional inline Python expression for custom calculations.
+                       Example: "((total_available - consumed) / total_available) * 100"
+            function: Optional reference to external function in format "module.function".
+                     Example: "my_functions.calculate_percentage"
+            input_columns: List of CSV column names to pass as parameters to expression/function.
+                          Required if expression or function is specified.
+
+        Raises:
+            ValueError: If both expression and function are specified, or if expression/function
+                       is specified without input_columns.
         """
+        # Validation
+        if expression is not None and function is not None:
+            raise ValueError("Cannot specify both 'expression' and 'function'")
+
+        if (expression is not None or function is not None) and not input_columns:
+            raise ValueError("Must specify 'input_columns' when using 'expression' or 'function'")
+
+        if (expression is not None or function is not None) and csv_column is not None:
+            raise ValueError(
+                "Cannot specify 'csv_column' when using 'expression' or 'function'. "
+                "Use 'input_columns' instead."
+            )
+
         self.csv_column = csv_column
         self.db_column = db_column
         self.data_type = data_type
         self.nullable = nullable
         self.lookup = lookup
+        self.expression = expression
+        self.function = function
+        self.input_columns = input_columns
 
     def apply_lookup(self, value: str) -> Any:
         """Apply lookup transformation to a value.
@@ -49,6 +79,80 @@ class ColumnMapping:
         if self.lookup is None:
             return value
         return self.lookup.get(value, value)
+
+    def apply_custom_function(self, row_data: dict[str, Any]) -> Any:
+        """Apply custom function or expression to compute a value.
+
+        Args:
+            row_data: Dictionary of column name to value from the CSV row
+
+        Returns:
+            The computed value from the expression or function
+
+        Raises:
+            ValueError: If input columns are missing from row_data
+            RuntimeError: If expression evaluation or function execution fails
+        """
+        if self.expression is None and self.function is None:
+            raise RuntimeError("No expression or function defined for custom function")
+
+        if not self.input_columns:
+            raise RuntimeError("No input_columns defined for custom function")
+
+        # Collect input values
+        input_values = []
+        for col_name in self.input_columns:
+            if col_name not in row_data:
+                raise ValueError(f"Input column '{col_name}' not found in row data")
+            input_values.append(row_data[col_name])
+
+        if self.expression:
+            # Execute inline expression
+            # Create a namespace with only the input values and safe built-ins
+            namespace = {}
+            for i, col_name in enumerate(self.input_columns):
+                namespace[col_name] = input_values[i]
+
+            # Add safe built-in functions
+            namespace["__builtins__"] = {
+                "abs": abs,
+                "min": min,
+                "max": max,
+                "round": round,
+                "int": int,
+                "float": float,
+                "str": str,
+                "bool": bool,
+                "len": len,
+            }
+
+            try:
+                result = eval(self.expression, namespace)
+                return result
+            except Exception as e:
+                raise RuntimeError(f"Failed to evaluate expression '{self.expression}': {e}") from e
+        else:
+            # Execute external function
+            try:
+                # Parse module and function name
+                parts = self.function.split(".")  # type: ignore[union-attr]
+                if len(parts) < 2:
+                    raise ValueError(
+                        f"Function must be in format 'module.function', got '{self.function}'"
+                    )
+
+                module_name = ".".join(parts[:-1])
+                function_name = parts[-1]
+
+                # Import module and get function
+                module = importlib.import_module(module_name)
+                func = getattr(module, function_name)
+
+                # Call function with input values
+                result = func(*input_values)
+                return result
+            except Exception as e:
+                raise RuntimeError(f"Failed to execute function '{self.function}': {e}") from e
 
 
 class FilenameColumnMapping:
@@ -356,16 +460,18 @@ class SyncConfig:
         return cls(jobs=jobs, id_column_matchers=id_column_matchers)
 
     @staticmethod
-    def _parse_column_mapping(csv_col: str, value: Any, job_name: str) -> ColumnMapping:
+    def _parse_column_mapping(csv_col: str | None, value: Any, job_name: str) -> ColumnMapping:
         """Parse a column mapping from config value.
 
-        Supports two formats:
+        Supports multiple formats:
         1. Simple: csv_column: db_column
         2. Extended: csv_column: {db_column: name, type: data_type, nullable: true/false, lookup: {...}}
+        3. Custom function: null: {db_column: name, expression: "...", input_columns: [...]}
+        4. Custom function: null: {db_column: name, function: "module.func", input_columns: [...]}
 
         Args:
-            csv_col: CSV column name
-            value: Either a string (db_column) or dict with db_column and optional type/nullable/lookup
+            csv_col: CSV column name (can be None for custom functions)
+            value: Either a string (db_column) or dict with db_column and optional fields
             job_name: Job name (for error messages)
 
         Returns:
@@ -376,9 +482,13 @@ class SyncConfig:
         """
         if isinstance(value, str):
             # Simple format: csv_column: db_column
+            if csv_col is None:
+                raise ValueError(
+                    f"Job '{job_name}' cannot use simple format with null csv_column key"
+                )
             return ColumnMapping(csv_column=csv_col, db_column=value)
         elif isinstance(value, dict):
-            # Extended format: csv_column: {db_column: name, type: data_type, nullable: true/false, lookup: {...}}
+            # Extended format with various options
             if "db_column" not in value:
                 raise ValueError(
                     f"Job '{job_name}' column '{csv_col}' extended mapping must have 'db_column'"
@@ -387,10 +497,27 @@ class SyncConfig:
             data_type = value.get("type")  # Optional
             nullable = value.get("nullable")  # Optional
             lookup = value.get("lookup")  # Optional
+            expression = value.get("expression")  # Optional
+            function = value.get("function")  # Optional
+            input_columns = value.get("input_columns")  # Optional
 
             # Validate lookup is a dict if provided
             if lookup is not None and not isinstance(lookup, dict):
                 raise ValueError(f"Job '{job_name}' column '{csv_col}' lookup must be a dictionary")
+
+            # Validate expression is a string if provided
+            if expression is not None and not isinstance(expression, str):
+                raise ValueError(f"Job '{job_name}' column '{csv_col}' expression must be a string")
+
+            # Validate function is a string if provided
+            if function is not None and not isinstance(function, str):
+                raise ValueError(f"Job '{job_name}' column '{csv_col}' function must be a string")
+
+            # Validate input_columns is a list if provided
+            if input_columns is not None and not isinstance(input_columns, list):
+                raise ValueError(
+                    f"Job '{job_name}' column '{csv_col}' input_columns must be a list"
+                )
 
             return ColumnMapping(
                 csv_column=csv_col,
@@ -398,6 +525,9 @@ class SyncConfig:
                 data_type=data_type,
                 nullable=nullable,
                 lookup=lookup,
+                expression=expression,
+                function=function,
+                input_columns=input_columns,
             )
         else:
             raise ValueError(
@@ -587,7 +717,15 @@ class SyncConfig:
             # Build id_mapping dict (supports compound primary keys)
             id_mapping_dict: dict[str, Any] = {}
             for id_col in job.id_mapping:
-                if id_col.data_type or id_col.nullable is not None or id_col.lookup is not None:
+                needs_extended = (
+                    id_col.data_type
+                    or id_col.nullable is not None
+                    or id_col.lookup is not None
+                    or id_col.expression is not None
+                    or id_col.function is not None
+                    or id_col.input_columns is not None
+                )
+                if needs_extended:
                     mapping_dict: dict[str, Any] = {"db_column": id_col.db_column}
                     if id_col.data_type:
                         mapping_dict["type"] = id_col.data_type
@@ -595,9 +733,17 @@ class SyncConfig:
                         mapping_dict["nullable"] = id_col.nullable
                     if id_col.lookup is not None:
                         mapping_dict["lookup"] = id_col.lookup
-                    id_mapping_dict[id_col.csv_column] = mapping_dict
+                    if id_col.expression is not None:
+                        mapping_dict["expression"] = id_col.expression
+                    if id_col.function is not None:
+                        mapping_dict["function"] = id_col.function
+                    if id_col.input_columns is not None:
+                        mapping_dict["input_columns"] = id_col.input_columns
+                    # Use None as key for custom functions (no csv_column)
+                    key = id_col.csv_column if id_col.csv_column is not None else None
+                    id_mapping_dict[key] = mapping_dict  # type: ignore[index]
                 else:
-                    id_mapping_dict[id_col.csv_column] = id_col.db_column
+                    id_mapping_dict[id_col.csv_column] = id_col.db_column  # type: ignore[index]
 
             job_dict: dict[str, Any] = {
                 "target_table": job.target_table,
@@ -608,7 +754,15 @@ class SyncConfig:
             if job.columns:
                 columns_dict: dict[str, Any] = {}
                 for col in job.columns:
-                    if col.data_type or col.nullable is not None or col.lookup is not None:
+                    needs_extended = (
+                        col.data_type
+                        or col.nullable is not None
+                        or col.lookup is not None
+                        or col.expression is not None
+                        or col.function is not None
+                        or col.input_columns is not None
+                    )
+                    if needs_extended:
                         mapping_dict = {"db_column": col.db_column}
                         if col.data_type:
                             mapping_dict["type"] = col.data_type
@@ -616,9 +770,17 @@ class SyncConfig:
                             mapping_dict["nullable"] = col.nullable
                         if col.lookup is not None:
                             mapping_dict["lookup"] = col.lookup
-                        columns_dict[col.csv_column] = mapping_dict
+                        if col.expression is not None:
+                            mapping_dict["expression"] = col.expression
+                        if col.function is not None:
+                            mapping_dict["function"] = col.function
+                        if col.input_columns is not None:
+                            mapping_dict["input_columns"] = col.input_columns
+                        # Use None as key for custom functions (no csv_column)
+                        key = col.csv_column if col.csv_column is not None else None
+                        columns_dict[key] = mapping_dict  # type: ignore[index]
                     else:
-                        columns_dict[col.csv_column] = col.db_column
+                        columns_dict[col.csv_column] = col.db_column  # type: ignore[index]
                 job_dict["columns"] = columns_dict
 
             # Add filename_to_column if present

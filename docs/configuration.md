@@ -158,6 +158,160 @@ columns:
 !!! note
     Lookups are applied **before** type conversion. For example, if you lookup `"active"` → `1` with `type: integer`, the value `1` is already an integer and will be stored correctly in an integer column.
 
+### Custom Functions
+
+Create calculated columns using Python expressions or external functions. This provides ultimate flexibility for complex data transformations that go beyond simple lookups or mappings.
+
+#### Use Cases
+
+- Calculate derived values (percentages, totals, ratios)
+- Combine multiple columns into one (concatenation, formatting)
+- Apply complex business logic
+- Perform mathematical operations
+- Format or transform data in custom ways
+
+#### Inline Expressions
+
+Use the `expression` field to define Python expressions that calculate values from other columns:
+
+```yaml
+columns:
+  consumed: consumed
+  total_available: total_available
+  ~:  # null key indicates this is a calculated column, not from CSV
+    db_column: percentage_available
+    expression: "((float(total_available) - float(consumed)) / float(total_available)) * 100"
+    input_columns: [consumed, total_available]
+    type: float
+```
+
+**Key points:**
+- Use `~` (null) as the column key since there's no corresponding CSV column
+- The `expression` is a Python expression evaluated for each row
+- `input_columns` lists the CSV columns needed for the calculation
+- CSV values are strings by default - use `float()`, `int()`, etc. for type conversion
+- Available functions: `abs`, `min`, `max`, `round`, `int`, `float`, `str`, `bool`, `len`
+
+#### External Functions
+
+For complex logic, reference functions defined in separate Python modules:
+
+```yaml
+columns:
+  first_name: first_name
+  last_name: last_name
+  ~:
+    db_column: full_name
+    function: "my_functions.concatenate_names"
+    input_columns: [first_name, last_name]
+    type: text
+```
+
+Create a Python module (e.g., `my_functions.py`):
+
+```python
+def concatenate_names(first: str, last: str) -> str:
+    """Concatenate first and last name with proper formatting."""
+    return f"{first} {last}".title()
+```
+
+**Key points:**
+- Use `function` field with format `"module.function_name"`
+- The module must be importable (in your Python path)
+- Function parameters receive values in the order specified in `input_columns`
+- All parameters are passed as strings (convert as needed in your function)
+- Return value can be any type compatible with the specified `type`
+
+#### Examples
+
+**Example 1: Calculate Order Total**
+
+```yaml
+columns:
+  price: unit_price
+  quantity: quantity
+  ~:
+    db_column: total_price
+    expression: "float(price) * float(quantity)"
+    input_columns: [price, quantity]
+    type: float
+```
+
+**Example 2: Combine Multiple Columns**
+
+```yaml
+columns:
+  street: street
+  city: city
+  state: state
+  zip: zip_code
+  ~:
+    db_column: full_address
+    expression: "f'{street}, {city}, {state} {zip}'"
+    input_columns: [street, city, state, zip]
+    type: text
+```
+
+**Example 3: Multiple Calculated Columns**
+
+```yaml
+columns:
+  price: price
+  quantity: quantity
+  tax_rate: tax_rate
+  ~:
+    db_column: subtotal
+    expression: "float(price) * float(quantity)"
+    input_columns: [price, quantity]
+    type: float
+  ~:
+    db_column: tax_amount
+    expression: "float(price) * float(quantity) * float(tax_rate)"
+    input_columns: [price, quantity, tax_rate]
+    type: float
+```
+
+**Example 4: External Function for Complex Logic**
+
+```yaml
+columns:
+  temperature: temp_celsius
+  ~:
+    db_column: temp_fahrenheit
+    function: "converters.celsius_to_fahrenheit"
+    input_columns: [temperature]
+    type: float
+```
+
+```python
+# converters.py
+def celsius_to_fahrenheit(celsius: str) -> float:
+    """Convert Celsius to Fahrenheit."""
+    c = float(celsius)
+    return (c * 9/5) + 32
+```
+
+#### Constraints and Validation
+
+- **Cannot specify both**: You cannot use `expression` and `function` together
+- **Requires input_columns**: You must specify `input_columns` when using expressions or functions
+- **No csv_column**: Cannot specify `csv_column` for calculated columns (use `~` as key)
+- **Input column validation**: All columns in `input_columns` must exist in the CSV file
+- **Error handling**: If an expression or function fails, the sync operation will fail with a detailed error message
+
+#### Security Considerations
+
+**Expression Safety:**
+- Expressions are evaluated using Python's `eval()` with a restricted namespace
+- Only safe built-in functions are available
+- Cannot access file system, network, or other dangerous operations
+- Still, only use expressions from trusted sources
+
+**Function Safety:**
+- External functions have full Python access
+- Only use functions from trusted modules
+- Validate and sanitize function logic before deployment
+
 ### Filename to Column
 
 Extract values from filenames and store them in database columns:
