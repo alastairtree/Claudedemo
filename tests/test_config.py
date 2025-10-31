@@ -1199,17 +1199,28 @@ jobs:
                 input_columns=None,
             )
 
-    def test_custom_function_with_csv_column_raises_error(self) -> None:
-        """Test that custom function with csv_column raises error."""
+    def test_custom_function_with_csv_column_named_transformation(self) -> None:
+        """Test that custom function can use csv_column for named transformations."""
         from data_sync.config import ColumnMapping
 
-        with pytest.raises(ValueError, match="Cannot specify 'csv_column' when using 'expression'"):
-            ColumnMapping(
-                csv_column="some_column",
-                db_column="result",
-                expression="a + b",
-                input_columns=["a", "b"],
-            )
+        # This is valid - allows transforming a named CSV column
+        col_mapping = ColumnMapping(
+            csv_column="temperature",
+            db_column="temp_adjusted",
+            expression="float(temperature) * 1.1 + 5",
+            input_columns=["temperature"],
+            data_type="float",
+        )
+
+        assert col_mapping.csv_column == "temperature"
+        assert col_mapping.db_column == "temp_adjusted"
+        assert col_mapping.expression == "float(temperature) * 1.1 + 5"
+        assert col_mapping.input_columns == ["temperature"]
+
+        # Test applying the transformation
+        row_data = {"temperature": "20"}
+        result = col_mapping.apply_custom_function(row_data)
+        assert result == 27.0  # 20 * 1.1 + 5
 
     def test_invalid_expression_type(self, tmp_path: Path) -> None:
         """Test that non-string expression raises error."""
@@ -1334,3 +1345,95 @@ jobs:
         assert custom_col.csv_column is None
         assert custom_col.function == "my_module.my_function"
         assert custom_col.input_columns == ["x", "y"]
+
+    def test_load_config_with_named_column_transformation(self, tmp_path: Path) -> None:
+        """Test loading config with expression on named CSV column."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: sensors
+    id_mapping:
+      id: id
+    columns:
+      temperature:
+        db_column: temp_adjusted
+        expression: "float(temperature) * 1.8 + 32"
+        input_columns: [temperature]
+        type: float
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_job")
+        assert job is not None
+        assert len(job.columns) == 1
+
+        temp_col = job.columns[0]
+        assert temp_col.csv_column == "temperature"
+        assert temp_col.db_column == "temp_adjusted"
+        assert temp_col.expression == "float(temperature) * 1.8 + 32"
+        assert temp_col.input_columns == ["temperature"]
+        assert temp_col.data_type == "float"
+
+    def test_save_config_with_named_column_transformation(self, tmp_path: Path) -> None:
+        """Test saving config with expression on named CSV column."""
+        from data_sync.config import ColumnMapping, SyncJob
+
+        job = SyncJob(
+            name="test_job",
+            target_table="sensors",
+            id_mapping=[ColumnMapping("id", "id")],
+            columns=[
+                ColumnMapping(
+                    csv_column="temperature",
+                    db_column="temp_adjusted",
+                    expression="float(temperature) * 1.1 + 5",
+                    input_columns=["temperature"],
+                    data_type="float",
+                )
+            ],
+        )
+
+        config = SyncConfig(jobs={"test_job": job})
+        config_file = tmp_path / "config.yaml"
+        config.save_to_yaml(config_file)
+
+        # Reload and verify
+        loaded_config = SyncConfig.from_yaml(config_file)
+        loaded_job = loaded_config.get_job("test_job")
+        assert loaded_job is not None
+        assert len(loaded_job.columns) == 1
+
+        temp_col = loaded_job.columns[0]
+        assert temp_col.csv_column == "temperature"
+        assert temp_col.db_column == "temp_adjusted"
+        assert temp_col.expression == "float(temperature) * 1.1 + 5"
+        assert temp_col.input_columns == ["temperature"]
+
+    def test_load_config_with_polynomial_transformation(self, tmp_path: Path) -> None:
+        """Test loading config with polynomial transformation."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_job:
+    target_table: data
+    id_mapping:
+      id: id
+    columns:
+      value:
+        db_column: value_calibrated
+        expression: "float(value)**2 * 0.5 + float(value) * 2 + 10"
+        input_columns: [value]
+        type: float
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_job")
+        assert job is not None
+        assert len(job.columns) == 1
+
+        value_col = job.columns[0]
+        assert value_col.csv_column == "value"
+        assert value_col.db_column == "value_calibrated"
+        assert value_col.expression == "float(value)**2 * 0.5 + float(value) * 2 + 10"
+        assert value_col.input_columns == ["value"]

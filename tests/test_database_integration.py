@@ -1616,3 +1616,135 @@ jobs:
         assert summary.rows_to_sync == 2
         assert ("id", "TEXT") in summary.new_columns
         assert ("percentage", "REAL") in summary.new_columns
+
+    def test_sync_with_named_column_expression(self, tmp_path: Path, db_url: str) -> None:
+        """Test syncing with expression on a named CSV column."""
+        from tests.test_helpers import create_csv_file
+
+        # Create CSV with temperature data in Celsius
+        csv_file = tmp_path / "temperatures.csv"
+        rows = [
+            {"id": "1", "temperature": "0"},
+            {"id": "2", "temperature": "100"},
+            {"id": "3", "temperature": "37"},
+        ]
+        create_csv_file(csv_file, ["id", "temperature"], rows)
+
+        # Create config with expression to convert Celsius to Fahrenheit
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_named:
+    target_table: temps_named
+    id_mapping:
+      id: id
+    columns:
+      temperature:
+        db_column: temp_fahrenheit
+        expression: "float(temperature) * 1.8 + 32"
+        input_columns: [temperature]
+        type: float
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_named")
+        assert job is not None
+
+        # Sync with expression
+        rows_synced = sync_csv_to_postgres(csv_file, job, db_url)
+        assert rows_synced == 3
+
+        # Verify transformed values
+        rows_db = execute_query(db_url, "SELECT id, temp_fahrenheit FROM temps_named ORDER BY id")
+        assert len(rows_db) == 3
+        assert rows_db[0] == ("1", 32.0)  # 0°C = 32°F
+        assert rows_db[1] == ("2", 212.0)  # 100°C = 212°F
+        assert rows_db[2] == ("3", 98.6)  # 37°C = 98.6°F
+
+    def test_sync_with_named_column_external_function(self, tmp_path: Path, db_url: str) -> None:
+        """Test syncing with external function on a named CSV column."""
+        from tests.test_helpers import create_csv_file
+
+        # Create CSV with temperature data in Celsius
+        csv_file = tmp_path / "temperatures.csv"
+        rows = [
+            {"id": "1", "temperature": "0"},
+            {"id": "2", "temperature": "25"},
+        ]
+        create_csv_file(csv_file, ["id", "temperature"], rows)
+
+        # Create config with external function
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_named_func:
+    target_table: temps_func
+    id_mapping:
+      id: id
+    columns:
+      temperature:
+        db_column: temp_fahrenheit
+        function: "tests.custom_functions.celsius_to_fahrenheit"
+        input_columns: [temperature]
+        type: float
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_named_func")
+        assert job is not None
+
+        # Sync with function
+        rows_synced = sync_csv_to_postgres(csv_file, job, db_url)
+        assert rows_synced == 2
+
+        # Verify transformed values
+        rows_db = execute_query(db_url, "SELECT id, temp_fahrenheit FROM temps_func ORDER BY id")
+        assert len(rows_db) == 2
+        assert rows_db[0] == ("1", 32.0)  # 0°C = 32°F
+        assert rows_db[1] == ("2", 77.0)  # 25°C = 77°F
+
+    def test_sync_with_polynomial_transformation(self, tmp_path: Path, db_url: str) -> None:
+        """Test syncing with polynomial calibration on a named column."""
+        from tests.test_helpers import create_csv_file
+
+        # Create CSV with raw sensor values
+        csv_file = tmp_path / "sensors.csv"
+        rows = [
+            {"id": "1", "raw_value": "10"},
+            {"id": "2", "raw_value": "20"},
+            {"id": "3", "raw_value": "50"},
+        ]
+        create_csv_file(csv_file, ["id", "raw_value"], rows)
+
+        # Create config with polynomial calibration
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("""
+jobs:
+  test_poly:
+    target_table: sensors_calibrated
+    id_mapping:
+      id: id
+    columns:
+      raw_value:
+        db_column: calibrated_value
+        expression: "0.01 * float(raw_value)**2 + 1.5 * float(raw_value) + 2"
+        input_columns: [raw_value]
+        type: float
+""")
+
+        config = SyncConfig.from_yaml(config_file)
+        job = config.get_job("test_poly")
+        assert job is not None
+
+        # Sync with polynomial
+        rows_synced = sync_csv_to_postgres(csv_file, job, db_url)
+        assert rows_synced == 3
+
+        # Verify calibrated values: y = 0.01*x^2 + 1.5*x + 2
+        rows_db = execute_query(
+            db_url, "SELECT id, calibrated_value FROM sensors_calibrated ORDER BY id"
+        )
+        assert len(rows_db) == 3
+        assert rows_db[0] == ("1", 18.0)  # 0.01*100 + 1.5*10 + 2 = 18
+        assert rows_db[1] == ("2", 36.0)  # 0.01*400 + 1.5*20 + 2 = 36
+        assert rows_db[2] == ("3", 102.0)  # 0.01*2500 + 1.5*50 + 2 = 102

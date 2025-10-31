@@ -42,3 +42,30 @@ def calculate_total(price: str, quantity: str) -> float:
         Total price
     """
     return float(price) * float(quantity)
+
+
+def celsius_to_fahrenheit(celsius: str) -> float:
+    """Convert Celsius to Fahrenheit.
+
+    Args:
+        celsius: Temperature in Celsius (as string from CSV)
+
+    Returns:
+        Temperature in Fahrenheit
+    """
+    c = float(celsius)
+    return (c * 9 / 5) + 32
+
+
+def apply_calibration(value: str) -> float:
+    """Apply a quadratic calibration formula to a sensor value.
+
+    Args:
+        value: Raw sensor value (as string from CSV)
+
+    Returns:
+        Calibrated value
+    """
+    v = float(value)
+    # Quadratic calibration: y = 0.01*x^2 + 1.5*x + 2
+    return 0.01 * v**2 + 1.5 * v + 2

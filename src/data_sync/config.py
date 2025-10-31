@@ -27,7 +27,9 @@ class ColumnMapping:
         """Initialize column mapping.
 
         Args:
-            csv_column: Name of the column in the CSV file. Can be None for custom functions.
+            csv_column: Name of the column in the CSV file. Can be None for custom functions
+                       creating new columns. Can be specified with expression/function to provide
+                       a named reference for the transformation.
             db_column: Name of the column in the database
             data_type: Optional data type (integer, float, date, datetime, text, varchar(N))
             nullable: Optional flag indicating if NULL values are allowed (True=NULL, False=NOT NULL)
@@ -35,7 +37,7 @@ class ColumnMapping:
                    Values not in the lookup are passed through unchanged.
                    Example: {"active": 1, "inactive": 0} to convert status strings to integers.
             expression: Optional inline Python expression for custom calculations.
-                       Example: "((total_available - consumed) / total_available) * 100"
+                       Example: "float(temperature) * 1.8 + 32" for Celsius to Fahrenheit
             function: Optional reference to external function in format "module.function".
                      Example: "my_functions.calculate_percentage"
             input_columns: List of CSV column names to pass as parameters to expression/function.
@@ -51,12 +53,6 @@ class ColumnMapping:
 
         if (expression is not None or function is not None) and not input_columns:
             raise ValueError("Must specify 'input_columns' when using 'expression' or 'function'")
-
-        if (expression is not None or function is not None) and csv_column is not None:
-            raise ValueError(
-                "Cannot specify 'csv_column' when using 'expression' or 'function'. "
-                "Use 'input_columns' instead."
-            )
 
         self.csv_column = csv_column
         self.db_column = db_column

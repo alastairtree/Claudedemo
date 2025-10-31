@@ -172,7 +172,11 @@ Create calculated columns using Python expressions or external functions. This p
 
 #### Inline Expressions
 
-Use the `expression` field to define Python expressions that calculate values from other columns:
+Use the `expression` field to define Python expressions that calculate values from other columns.
+
+**Creating New Calculated Columns:**
+
+Use `~` (null) as the column key when creating a new column:
 
 ```yaml
 columns:
@@ -185,8 +189,26 @@ columns:
     type: float
 ```
 
+**Transforming Existing CSV Columns:**
+
+Use the CSV column name as the key when transforming an existing column:
+
+```yaml
+columns:
+  temperature:
+    db_column: temp_fahrenheit
+    expression: "float(temperature) * 1.8 + 32"
+    input_columns: [temperature]
+    type: float
+```
+
+This is useful for:
+- Unit conversions (Celsius to Fahrenheit, meters to feet)
+- Applying calibration formulas or polynomials
+- Scaling or adjusting values
+- Simple transformations on a single column
+
 **Key points:**
-- Use `~` (null) as the column key since there's no corresponding CSV column
 - The `expression` is a Python expression evaluated for each row
 - `input_columns` lists the CSV columns needed for the calculation
 - CSV values are strings by default - use `float()`, `int()`, etc. for type conversion
@@ -271,7 +293,33 @@ columns:
     type: float
 ```
 
-**Example 4: External Function for Complex Logic**
+**Example 4: Transform Named Column (Unit Conversion)**
+
+```yaml
+columns:
+  temperature:
+    db_column: temp_fahrenheit
+    expression: "float(temperature) * 1.8 + 32"
+    input_columns: [temperature]
+    type: float
+```
+
+This transforms the `temperature` column from Celsius to Fahrenheit.
+
+**Example 5: Polynomial Calibration**
+
+```yaml
+columns:
+  raw_sensor_value:
+    db_column: calibrated_value
+    expression: "0.01 * float(raw_sensor_value)**2 + 1.5 * float(raw_sensor_value) + 2"
+    input_columns: [raw_sensor_value]
+    type: float
+```
+
+Applies a quadratic calibration formula to sensor readings.
+
+**Example 6: External Function for Complex Logic**
 
 ```yaml
 columns:
@@ -295,7 +343,9 @@ def celsius_to_fahrenheit(celsius: str) -> float:
 
 - **Cannot specify both**: You cannot use `expression` and `function` together
 - **Requires input_columns**: You must specify `input_columns` when using expressions or functions
-- **No csv_column**: Cannot specify `csv_column` for calculated columns (use `~` as key)
+- **Column naming**:
+  - Use `~` (null key) for new calculated columns that don't exist in CSV
+  - Use the CSV column name as key when transforming an existing column
 - **Input column validation**: All columns in `input_columns` must exist in the CSV file
 - **Error handling**: If an expression or function fails, the sync operation will fail with a detailed error message
 
