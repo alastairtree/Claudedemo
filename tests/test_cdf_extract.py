@@ -7,8 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from data_sync.cdf_extractor import extract_cdf_to_csv
+from data_sync.cdf_extractor import extract_cdf_to_csv, extract_cdf_with_config
 from data_sync.cdf_reader import read_cdf_variables
+from data_sync.config import ColumnMapping, SyncJob
 
 
 @pytest.fixture
@@ -464,3 +465,126 @@ def test_extract_max_records_none_extracts_all(solo_cdf_file: Path, tmp_path: Pa
 
     # Should have all 1440 rows
     assert result.num_rows == 1440
+
+
+def test_extract_cdf_with_config_basic(imap_cdf_file: Path, tmp_path: Path) -> None:
+    """Test extracting CDF with config-based column mapping."""
+    # Create a simple job config
+    job = SyncJob(
+        name="test_job",
+        target_table="test_table",
+        id_mapping=[ColumnMapping(csv_column="epoch", db_column="id")],
+        columns=[
+            ColumnMapping(csv_column="vectors_0", db_column="vector_x"),
+            ColumnMapping(csv_column="vectors_1", db_column="vector_y"),
+            ColumnMapping(csv_column="vector_magnitude", db_column="magnitude"),
+        ],
+    )
+
+    output_file = tmp_path / "output.csv"
+
+    result = extract_cdf_with_config(
+        cdf_file_path=imap_cdf_file,
+        output_path=output_file,
+        job=job,
+        max_records=None,
+    )
+
+    # Verify extraction result
+    assert result.output_file.exists()
+    assert result.num_rows > 0
+    assert result.num_columns == 4  # id + vector_x + vector_y + magnitude
+
+    # Verify CSV content
+    with open(output_file, encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        headers = reader.fieldnames
+        assert headers == ["id", "vector_x", "vector_y", "magnitude"]
+
+        rows = list(reader)
+        assert len(rows) == result.num_rows
+
+
+def test_extract_cdf_with_config_column_renaming(imap_cdf_file: Path, tmp_path: Path) -> None:
+    """Test that config-based extraction renames columns correctly."""
+    # Create a job with column renaming
+    job = SyncJob(
+        name="test_job",
+        target_table="test_table",
+        id_mapping=[ColumnMapping(csv_column="epoch", db_column="timestamp")],
+        columns=[
+            ColumnMapping(csv_column="vector_magnitude", db_column="mag"),
+        ],
+    )
+
+    output_file = tmp_path / "output.csv"
+
+    result = extract_cdf_with_config(
+        cdf_file_path=imap_cdf_file,
+        output_path=output_file,
+        job=job,
+        max_records=None,
+    )
+
+    # Verify CSV has renamed columns
+    with open(output_file, encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        headers = reader.fieldnames
+        assert "timestamp" in headers
+        assert "mag" in headers
+        assert "epoch" not in headers  # Original name should not be present
+        assert "vector_magnitude" not in headers
+
+
+def test_extract_cdf_with_config_max_records(solo_cdf_file: Path, tmp_path: Path) -> None:
+    """Test that max_records works with config-based extraction."""
+    max_records = 50
+
+    job = SyncJob(
+        name="test_job",
+        target_table="test_table",
+        id_mapping=[ColumnMapping(csv_column="EPOCH", db_column="id")],
+        columns=[
+            ColumnMapping(csv_column="B_r", db_column="b_radial"),
+        ],
+    )
+
+    output_file = tmp_path / "output.csv"
+
+    result = extract_cdf_with_config(
+        cdf_file_path=solo_cdf_file,
+        output_path=output_file,
+        job=job,
+        max_records=max_records,
+    )
+
+    # Should have exactly max_records rows
+    assert result.num_rows == max_records
+
+    # Verify file
+    with open(output_file, encoding="utf-8") as f:
+        reader = csv.reader(f)
+        rows = list(reader)
+        assert len(rows) == max_records + 1  # 1 header + max_records data
+
+
+def test_extract_cdf_with_config_missing_column(imap_cdf_file: Path, tmp_path: Path) -> None:
+    """Test that extraction fails gracefully with missing columns."""
+    # Create a job that references a non-existent column
+    job = SyncJob(
+        name="test_job",
+        target_table="test_table",
+        id_mapping=[ColumnMapping(csv_column="nonexistent_column", db_column="id")],
+        columns=[],
+    )
+
+    output_file = tmp_path / "output.csv"
+
+    # Should raise an error about missing column
+    with pytest.raises(ValueError, match="not found in CDF data"):
+        extract_cdf_with_config(
+            cdf_file_path=imap_cdf_file,
+            output_path=output_file,
+            job=job,
+            max_records=None,
+        )
