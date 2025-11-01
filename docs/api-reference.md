@@ -21,16 +21,16 @@ pip install crump
 
 ```python
 from pathlib import Path
-from crump import sync_csv_to_postgres, SyncConfig
+from crump import sync_csv_to_postgres, CrumpConfig
 
 # Load configuration
-config = SyncConfig.from_yaml(Path("crump_config.yaml"))
+config = CrumpConfig.from_yaml(Path("crump_config.yaml"))
 job = config.get_job("my_job")
 
 # Sync a CSV file
 rows_synced = sync_csv_to_postgres(
     file_path=Path("data.csv"),
-    sync_job=job,
+    crump_job=job,
     db_url="postgresql://user:pass@localhost/mydb"
 )
 print(f"Synced {rows_synced} rows")
@@ -45,7 +45,7 @@ Sync a CSV file to PostgreSQL.
 ```python
 def sync_csv_to_postgres(
     file_path: Path,
-    sync_job: SyncJob,
+    crump_job: CrumpJob,
     db_url: str,
     filename_values: dict[str, str] | None = None
 ) -> int
@@ -56,7 +56,7 @@ def sync_csv_to_postgres(
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `file_path` | `Path` | Path to the CSV file to sync |
-| `sync_job` | `SyncJob` | Configuration for the sync job |
+| `crump_job` | `CrumpJob` | Configuration for the sync job |
 | `db_url` | `str` | Database connection string |
 | `filename_values` | `dict[str, str] \| None` | Extracted values from filename (optional) |
 
@@ -71,15 +71,15 @@ def sync_csv_to_postgres(
 
 ```python
 from pathlib import Path
-from crump import sync_csv_to_postgres, SyncConfig
+from crump import sync_csv_to_postgres, CrumpConfig
 
-config = SyncConfig.from_yaml(Path("crump_config.yaml"))
+config = CrumpConfig.from_yaml(Path("crump_config.yaml"))
 job = config.get_job("users_sync")
 
 # Basic sync
 rows = sync_csv_to_postgres(
     file_path=Path("users.csv"),
-    sync_job=job,
+    crump_job=job,
     db_url="postgresql://localhost/mydb"
 )
 
@@ -87,7 +87,7 @@ rows = sync_csv_to_postgres(
 filename_values = {"date": "2024-01-15"}
 rows = sync_csv_to_postgres(
     file_path=Path("sales_2024-01-15.csv"),
-    sync_job=job,
+    crump_job=job,
     db_url="postgresql://localhost/mydb",
     filename_values=filename_values
 )
@@ -100,7 +100,7 @@ Preview sync without making database changes.
 ```python
 def sync_csv_to_postgres_dry_run(
     file_path: Path,
-    sync_job: SyncJob,
+    crump_job: CrumpJob,
     db_url: str,
     filename_values: dict[str, str] | None = None
 ) -> DryRunSummary
@@ -123,14 +123,14 @@ def sync_csv_to_postgres_dry_run(
 
 ```python
 from pathlib import Path
-from crump import sync_csv_to_postgres_dry_run, SyncConfig
+from crump import sync_csv_to_postgres_dry_run, CrumpConfig
 
-config = SyncConfig.from_yaml(Path("crump_config.yaml"))
+config = CrumpConfig.from_yaml(Path("crump_config.yaml"))
 job = config.get_job("my_job")
 
 summary = sync_csv_to_postgres_dry_run(
     file_path=Path("data.csv"),
-    sync_job=job,
+    crump_job=job,
     db_url="postgresql://localhost/mydb"
 )
 
@@ -223,32 +223,32 @@ print(f"Suggested ID: {id_col}")  # Output: name (first column)
 
 ## Configuration Classes
 
-### SyncConfig
+### CrumpConfig
 
 Main configuration container.
 
 ```python
-class SyncConfig:
-    def __init__(self, jobs: dict[str, SyncJob]) -> None
+class CrumpConfig:
+    def __init__(self, jobs: dict[str, CrumpJob]) -> None
 
     @classmethod
-    def from_yaml(cls, config_path: Path) -> SyncConfig
+    def from_yaml(cls, config_path: Path) -> CrumpConfig
 
     def save_to_yaml(self, config_path: Path) -> None
 
-    def get_job(self, job_name: str) -> SyncJob | None
+    def get_job(self, job_name: str) -> CrumpJob | None
 
-    def add_or_update_job(self, job: SyncJob, force: bool = False) -> None
+    def add_or_update_job(self, job: CrumpJob, force: bool = False) -> None
 ```
 
 **Example**:
 
 ```python
 from pathlib import Path
-from crump import SyncConfig
+from crump import CrumpConfig
 
 # Load from file
-config = SyncConfig.from_yaml(Path("crump_config.yaml"))
+config = CrumpConfig.from_yaml(Path("crump_config.yaml"))
 
 # Get a job
 job = config.get_job("my_job")
@@ -256,10 +256,10 @@ if job:
     print(f"Target table: {job.target_table}")
 
 # Create new config
-from crump import SyncJob, ColumnMapping
+from crump import CrumpJob, ColumnMapping
 
-new_config = SyncConfig(jobs={})
-job = SyncJob(
+new_config = CrumpConfig(jobs={})
+job = CrumpJob(
     name="users",
     target_table="users",
     id_mapping=[ColumnMapping("user_id", "id", "integer")]
@@ -268,12 +268,12 @@ new_config.add_or_update_job(job)
 new_config.save_to_yaml(Path("new_crump_config.yaml"))
 ```
 
-### SyncJob
+### CrumpJob
 
 Configuration for a single sync job.
 
 ```python
-class SyncJob:
+class CrumpJob:
     def __init__(
         self,
         name: str,
@@ -299,9 +299,9 @@ class SyncJob:
 **Example**:
 
 ```python
-from crump import SyncJob, ColumnMapping, Index, IndexColumn
+from crump import CrumpJob, ColumnMapping, Index, IndexColumn
 
-job = SyncJob(
+job = CrumpJob(
     name="users_sync",
     target_table="users",
     id_mapping=[
@@ -434,8 +434,8 @@ Here's a complete example demonstrating various API features:
 ```python
 from pathlib import Path
 from crump import (
-    SyncConfig,
-    SyncJob,
+    CrumpConfig,
+    CrumpJob,
     ColumnMapping,
     FilenameToColumn,
     FilenameColumnMapping,
@@ -457,7 +457,7 @@ print(f"Detected columns: {columns}")
 print(f"Suggested ID: {id_column}")
 
 # Create a job programmatically
-job = SyncJob(
+job = CrumpJob(
     name="daily_sales",
     target_table="sales",
     id_mapping=[
@@ -487,7 +487,7 @@ job = SyncJob(
 )
 
 # Create config and save
-config = SyncConfig(jobs={})
+config = CrumpConfig(jobs={})
 config.add_or_update_job(job)
 config.save_to_yaml(Path("crump_config.yaml"))
 
@@ -497,7 +497,7 @@ filename_values = job.filename_to_column.extract_values_from_filename(csv_path)
 # Dry-run first
 summary = sync_csv_to_postgres_dry_run(
     file_path=csv_path,
-    sync_job=job,
+    crump_job=job,
     db_url="postgresql://localhost/mydb",
     filename_values=filename_values
 )
@@ -511,7 +511,7 @@ print(f"  Rows to delete: {summary.rows_to_delete}")
 if input("Proceed with sync? (y/n): ").lower() == "y":
     rows = sync_csv_to_postgres(
         file_path=csv_path,
-        sync_job=job,
+        crump_job=job,
         db_url="postgresql://localhost/mydb",
         filename_values=filename_values
     )
@@ -522,10 +522,10 @@ if input("Proceed with sync? (y/n): ").lower() == "y":
 
 ```python
 from pathlib import Path
-from crump import sync_csv_to_postgres, SyncConfig
+from crump import sync_csv_to_postgres, CrumpConfig
 
 try:
-    config = SyncConfig.from_yaml(Path("crump_config.yaml"))
+    config = CrumpConfig.from_yaml(Path("crump_config.yaml"))
     job = config.get_job("my_job")
 
     if not job:
@@ -534,7 +534,7 @@ try:
 
     rows = sync_csv_to_postgres(
         file_path=Path("data.csv"),
-        sync_job=job,
+        crump_job=job,
         db_url="postgresql://localhost/mydb"
     )
     print(f"Success: {rows} rows synced")
@@ -553,13 +553,13 @@ All functions include full type hints for IDE autocomplete and type checking:
 
 ```python
 from pathlib import Path
-from crump import sync_csv_to_postgres, SyncJob
+from crump import sync_csv_to_postgres, CrumpJob
 
 # Type checker knows the types
-def sync_data(csv_file: Path, job: SyncJob) -> None:
+def sync_data(csv_file: Path, job: CrumpJob) -> None:
     rows: int = sync_csv_to_postgres(
         file_path=csv_file,
-        sync_job=job,
+        crump_job=job,
         db_url="postgresql://localhost/mydb"
     )
     # rows is guaranteed to be int

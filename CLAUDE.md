@@ -34,7 +34,7 @@ uv run pytest tests -k database -k "[postgres]" -v
 uv run pytest tests/test_database_integration.py -v
 
 # Run specific test
-uv run pytest tests/test_config.py::TestSyncConfig::test_load_from_yaml -v
+uv run pytest tests/test_config.py::TestCrumpConfig::test_load_from_yaml -v
 ```
 
 ### Code Quality
@@ -72,7 +72,7 @@ uv run mkdocs serve
 - `extract` command supports both raw CDF dump and config-based extraction with column mapping
 
 **Configuration System** (`config.py`):
-- YAML-based job configuration with `SyncConfig` and `SyncJob` classes
+- YAML-based job configuration with `CrumpConfig` and `CrumpJob` classes
 - Column mappings between CSV and database
 - Filename extraction patterns for metadata (dates, versions, etc.)
 - Compound primary key support via `id_mapping`

@@ -142,16 +142,16 @@ crump sync data.csv crump_config.yaml my_job --dry-run
 
 ```python
 from pathlib import Path
-from crump import sync_csv_to_postgres, SyncConfig
+from crump import sync_csv_to_postgres, CrumpConfig
 
 # Load configuration
-config = SyncConfig.from_yaml(Path("crump_config.yaml"))
+config = CrumpConfig.from_yaml(Path("crump_config.yaml"))
 job = config.get_job("my_job")
 
 # Sync CSV to database
 rows_synced = sync_csv_to_postgres(
     file_path=Path("data.csv"),
-    sync_job=job,
+    crump_job=job,
     db_url="postgresql://localhost/mydb"
 )
 print(f"Synced {rows_synced} rows")

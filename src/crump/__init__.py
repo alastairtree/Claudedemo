@@ -26,10 +26,10 @@ __version__ = "0.1.0"
 # Export main API functions
 from crump.config import (
     ColumnMapping,
+    CrumpConfig,
+    CrumpJob,
     Index,
     IndexColumn,
-    SyncConfig,
-    SyncJob,
 )
 from crump.database import (
     DryRunSummary,
@@ -41,8 +41,8 @@ from crump.type_detection import analyze_csv_types_and_nullable, suggest_id_colu
 __all__ = [
     "__version__",
     # Configuration
-    "SyncConfig",
-    "SyncJob",
+    "CrumpConfig",
+    "CrumpJob",
     "ColumnMapping",
     "Index",
     "IndexColumn",

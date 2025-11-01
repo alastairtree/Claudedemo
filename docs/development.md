@@ -100,10 +100,10 @@ uv run python -m http.server --directory htmlcov 8000
 uv run pytest tests/test_config.py -v
 
 # Run specific test class
-uv run pytest tests/test_config.py::TestSyncConfig -v
+uv run pytest tests/test_config.py::TestCrumpConfig -v
 
 # Run specific test
-uv run pytest tests/test_config.py::TestSyncConfig::test_load_from_yaml -v
+uv run pytest tests/test_config.py::TestCrumpConfig::test_load_from_yaml -v
 ```
 
 ## Code Quality

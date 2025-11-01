@@ -11,7 +11,7 @@ from typing import Any, Protocol
 import psycopg
 from psycopg import sql
 
-from crump.config import SyncJob, apply_row_transformations
+from crump.config import CrumpJob, apply_row_transformations
 
 logger = logging.getLogger(__name__)
 
@@ -831,11 +831,11 @@ class DatabaseConnection:
             raise RuntimeError("Database connection not established")
         return self.backend.table_exists(table_name)
 
-    def _validate_id_columns(self, job: SyncJob, csv_columns: set[str]) -> set[str]:
+    def _validate_id_columns(self, job: CrumpJob, csv_columns: set[str]) -> set[str]:
         """Validate that required ID columns exist in CSV.
 
         Args:
-            job: SyncJob configuration
+            job: CrumpJob configuration
             csv_columns: Set of column names from CSV
 
         Returns:
@@ -864,12 +864,12 @@ class DatabaseConnection:
         return id_csv_columns
 
     def _determine_sync_columns(
-        self, job: SyncJob, csv_columns: set[str], id_csv_columns: set[str]
+        self, job: CrumpJob, csv_columns: set[str], id_csv_columns: set[str]
     ) -> list[Any]:
         """Determine which columns to sync based on job configuration.
 
         Args:
-            job: SyncJob configuration
+            job: CrumpJob configuration
             csv_columns: Set of column names from CSV
             id_csv_columns: Set of ID column names
 
@@ -908,12 +908,12 @@ class DatabaseConnection:
 
         return sync_columns
 
-    def _build_column_definitions(self, sync_columns: list[Any], job: SyncJob) -> dict[str, str]:
+    def _build_column_definitions(self, sync_columns: list[Any], job: CrumpJob) -> dict[str, str]:
         """Build column definitions with SQL types and nullable constraints.
 
         Args:
             sync_columns: List of ColumnMapping objects
-            job: SyncJob configuration
+            job: CrumpJob configuration
 
         Returns:
             Dictionary mapping column names to SQL type definitions (including NULL/NOT NULL)
@@ -942,12 +942,12 @@ class DatabaseConnection:
         return columns_def
 
     def _setup_table_schema(
-        self, job: SyncJob, columns_def: dict[str, str], primary_keys: list[str]
+        self, job: CrumpJob, columns_def: dict[str, str], primary_keys: list[str]
     ) -> None:
         """Create table and add missing columns/indexes.
 
         Args:
-            job: SyncJob configuration
+            job: CrumpJob configuration
             columns_def: Dictionary mapping column names to SQL types
             primary_keys: List of primary key column names
         """
@@ -1006,7 +1006,7 @@ class DatabaseConnection:
     def _process_csv_rows(
         self,
         reader: Any,
-        job: SyncJob,
+        job: CrumpJob,
         sync_columns: list[Any],
         primary_keys: list[str],
         filename_values: dict[str, str] | None = None,
@@ -1015,7 +1015,7 @@ class DatabaseConnection:
 
         Args:
             reader: CSV DictReader
-            job: SyncJob configuration
+            job: CrumpJob configuration
             sync_columns: List of ColumnMapping objects
             primary_keys: List of primary key column names
             filename_values: Optional dict of values extracted from filename
@@ -1068,7 +1068,7 @@ class DatabaseConnection:
     def _count_and_track_csv_rows(
         self,
         csv_path: Path,
-        job: SyncJob,
+        job: CrumpJob,
         sync_columns: list[Any],
         filename_values: dict[str, str] | None = None,
     ) -> tuple[int, set[tuple]]:
@@ -1079,7 +1079,7 @@ class DatabaseConnection:
 
         Args:
             csv_path: Path to CSV file
-            job: SyncJob configuration
+            job: CrumpJob configuration
             sync_columns: List of ColumnMapping objects
             filename_values: Optional dict of values extracted from filename
 
@@ -1128,13 +1128,13 @@ class DatabaseConnection:
         return row_count, synced_ids
 
     def _prepare_sync(
-        self, csv_path: Path, job: SyncJob
+        self, csv_path: Path, job: CrumpJob
     ) -> tuple[set[str], list[Any], dict[str, str]]:
         """Prepare for sync by validating CSV and building schema definitions.
 
         Args:
             csv_path: Path to CSV file
-            job: SyncJob configuration
+            job: CrumpJob configuration
 
         Returns:
             Tuple of (csv_columns, sync_columns, columns_def)
@@ -1164,14 +1164,14 @@ class DatabaseConnection:
     def sync_csv_file_dry_run(
         self,
         csv_path: Path,
-        job: SyncJob,
+        job: CrumpJob,
         filename_values: dict[str, str] | None = None,
     ) -> DryRunSummary:
         """Simulate syncing a CSV file without making database changes.
 
         Args:
             csv_path: Path to CSV file
-            job: SyncJob configuration
+            job: CrumpJob configuration
             filename_values: Optional dict of values extracted from filename
 
         Returns:
@@ -1237,14 +1237,14 @@ class DatabaseConnection:
     def sync_csv_file(
         self,
         csv_path: Path,
-        job: SyncJob,
+        job: CrumpJob,
         filename_values: dict[str, str] | None = None,
     ) -> int:
         """Sync a CSV file to the database using job configuration.
 
         Args:
             csv_path: Path to CSV file
-            job: SyncJob configuration
+            job: CrumpJob configuration
             filename_values: Optional dict of values extracted from filename
 
         Returns:
@@ -1292,7 +1292,7 @@ class DatabaseConnection:
 
 def sync_csv_to_postgres(
     csv_path: Path,
-    job: SyncJob,
+    job: CrumpJob,
     db_connection_string: str,
     filename_values: dict[str, str] | None = None,
 ) -> int:
@@ -1300,7 +1300,7 @@ def sync_csv_to_postgres(
 
     Args:
         csv_path: Path to the CSV file
-        job: SyncJob configuration
+        job: CrumpJob configuration
         db_connection_string: PostgreSQL connection string
         filename_values: Optional dict of values extracted from filename
 
@@ -1313,7 +1313,7 @@ def sync_csv_to_postgres(
 
 def sync_csv_to_postgres_dry_run(
     csv_path: Path,
-    job: SyncJob,
+    job: CrumpJob,
     db_connection_string: str,
     filename_values: dict[str, str] | None = None,
 ) -> DryRunSummary:
@@ -1321,7 +1321,7 @@ def sync_csv_to_postgres_dry_run(
 
     Args:
         csv_path: Path to the CSV file
-        job: SyncJob configuration
+        job: CrumpJob configuration
         db_connection_string: Database connection string
         filename_values: Optional dict of values extracted from filename
 

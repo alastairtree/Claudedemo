@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from crump.cdf_extractor import extract_cdf_to_csv, extract_cdf_with_config
-from crump.config import SyncConfig
+from crump.config import CrumpConfig
 
 console = Console()
 
@@ -189,21 +189,21 @@ def _extract_with_config(
         filename: Filename template for output files
     """
     # Load configuration
-    sync_config = SyncConfig.from_yaml(config_path)
+    crump_config = CrumpConfig.from_yaml(config_path)
 
     # Get the specified job or auto-detect if there's only one
     try:
-        job_result = sync_config.get_job_or_auto_detect(job_name)
+        job_result = crump_config.get_job_or_auto_detect(job_name)
         if not job_result:
             if job_name:
-                available_jobs = ", ".join(sync_config.jobs.keys())
+                available_jobs = ", ".join(crump_config.jobs.keys())
                 console.print(f"[red]Error:[/red] Job '{job_name}' not found in config")
                 console.print(f"[dim]Available jobs: {available_jobs}[/dim]")
             else:
                 console.print("[red]Error:[/red] Config file contains no jobs")
             raise click.Abort()
 
-        sync_job, detected_job_name = job_result
+        crump_job, detected_job_name = job_result
 
         # Inform user if we auto-detected the job
         if job_name is None:
@@ -211,7 +211,7 @@ def _extract_with_config(
 
     except ValueError as e:
         # Multiple jobs found, need explicit job name
-        available_jobs = ", ".join(sync_config.jobs.keys())
+        available_jobs = ", ".join(crump_config.jobs.keys())
         console.print(f"[red]Error:[/red] {e}")
         console.print(f"[dim]Available jobs: {available_jobs}[/dim]")
         raise click.Abort() from e
@@ -247,7 +247,7 @@ def _extract_with_config(
             results = extract_cdf_with_config(
                 cdf_file_path=cdf_file,
                 output_dir=output_dir,
-                job=sync_job,
+                job=crump_job,
                 max_records=max_records,
                 automerge=automerge,
                 variable_names=variable_list,

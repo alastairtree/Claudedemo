@@ -11,7 +11,7 @@ from typing import Any
 import numpy as np
 
 from crump.cdf_reader import CDFVariable, get_column_names_for_variable, read_cdf_variables
-from crump.config import SyncJob, apply_row_transformations
+from crump.config import CrumpJob, apply_row_transformations
 
 
 @dataclass
@@ -396,7 +396,7 @@ def extract_cdf_to_csv(
 def extract_cdf_with_config(
     cdf_file_path: Path,
     output_dir: Path,
-    job: SyncJob,
+    job: CrumpJob,
     max_records: int | None = None,
     automerge: bool = True,
     variable_names: list[str] | None = None,
@@ -415,7 +415,7 @@ def extract_cdf_with_config(
     Args:
         cdf_file_path: Path to the CDF file
         output_dir: Directory to write output CSV file(s)
-        job: SyncJob configuration with column mappings and transformations
+        job: CrumpJob configuration with column mappings and transformations
         max_records: Maximum number of records to extract (None = all)
         automerge: Whether to merge variables with same record count during raw extraction
         variable_names: Specific variable names to extract (None = all)
@@ -495,7 +495,7 @@ def _transform_csv_with_config(
     raw_csv_path: Path,
     output_dir: Path,
     cdf_file_path: Path,
-    job: SyncJob,
+    job: CrumpJob,
     filename_values: dict[str, str] | None,
     raw_result: ExtractionResult,
     append: bool = False,

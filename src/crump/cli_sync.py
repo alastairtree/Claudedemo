@@ -7,7 +7,7 @@ import click
 from rich.console import Console
 
 from crump.cdf_extractor import extract_cdf_to_csv
-from crump.config import SyncConfig
+from crump.config import CrumpConfig
 from crump.database import sync_csv_to_postgres, sync_csv_to_postgres_dry_run
 
 console = Console()
@@ -134,21 +134,21 @@ def sync(
 
     try:
         # Load configuration
-        sync_config = SyncConfig.from_yaml(config)
+        crump_config = CrumpConfig.from_yaml(config)
 
         # Get the specified job or auto-detect if there's only one
         try:
-            result = sync_config.get_job_or_auto_detect(job)
+            result = crump_config.get_job_or_auto_detect(job)
             if not result:
                 if job:
-                    available_jobs = ", ".join(sync_config.jobs.keys())
+                    available_jobs = ", ".join(crump_config.jobs.keys())
                     console.print(f"[red]Error:[/red] Job '{job}' not found in config")
                     console.print(f"[dim]Available jobs: {available_jobs}[/dim]")
                 else:
                     console.print("[red]Error:[/red] Config file contains no jobs")
                 raise click.Abort()
 
-            sync_job, detected_job_name = result
+            crump_job, detected_job_name = result
 
             # Inform user if we auto-detected the job
             if job is None:
@@ -156,7 +156,7 @@ def sync(
 
         except ValueError as e:
             # Multiple jobs found, need explicit job name
-            available_jobs = ", ".join(sync_config.jobs.keys())
+            available_jobs = ", ".join(crump_config.jobs.keys())
             console.print(f"[red]Error:[/red] {e}")
             console.print(f"[dim]Available jobs: {available_jobs}[/dim]")
             raise click.Abort() from e
@@ -190,8 +190,8 @@ def sync(
         # Extract values from filename if filename_to_column is configured
         # Use the CSV filename for extraction (which might be extracted from CDF)
         filename_values = None
-        if sync_job.filename_to_column:
-            filename_values = sync_job.filename_to_column.extract_values_from_filename(
+        if crump_job.filename_to_column:
+            filename_values = crump_job.filename_to_column.extract_values_from_filename(
                 csv_file_to_sync
             )
             if not filename_values:
@@ -208,9 +208,9 @@ def sync(
                         f"[red]Error:[/red] Could not extract values from filename '{csv_file_to_sync.name}'"
                     )
                     pattern = (
-                        sync_job.filename_to_column.template
-                        if sync_job.filename_to_column.template
-                        else sync_job.filename_to_column.regex
+                        crump_job.filename_to_column.template
+                        if crump_job.filename_to_column.template
+                        else crump_job.filename_to_column.regex
                     )
                     console.print(f"[dim]  Pattern: {pattern}[/dim]")
                     raise click.Abort()
@@ -223,7 +223,7 @@ def sync(
                 f"[cyan]DRY RUN: Simulating sync of {csv_file_to_sync.name} using job '{job}'...[/cyan]"
             )
             summary = sync_csv_to_postgres_dry_run(
-                csv_file_to_sync, sync_job, db_url, filename_values
+                csv_file_to_sync, crump_job, db_url, filename_values
             )
 
             # Display dry-run summary
@@ -278,10 +278,10 @@ def sync(
         else:
             # Sync the file
             console.print(f"[cyan]Syncing {csv_file_to_sync.name} using job '{job}'...[/cyan]")
-            rows_synced = sync_csv_to_postgres(csv_file_to_sync, sync_job, db_url, filename_values)
+            rows_synced = sync_csv_to_postgres(csv_file_to_sync, crump_job, db_url, filename_values)
 
             console.print(f"[green]✓ Successfully synced {rows_synced} rows[/green]")
-            console.print(f"[dim]  Table: {sync_job.target_table}[/dim]")
+            console.print(f"[dim]  Table: {crump_job.target_table}[/dim]")
             console.print(f"[dim]  Source file: {file_path}[/dim]")
             if csv_file_to_sync != file_path:
                 console.print(f"[dim]  CSV extracted: {csv_file_to_sync.name}[/dim]")

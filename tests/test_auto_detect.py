@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from crump.config import SyncConfig
+from crump.config import CrumpConfig
 
 
 def test_get_job_or_auto_detect_single_job(tmp_path: Path) -> None:
@@ -20,7 +20,7 @@ jobs:
       name: db_name
 """)
 
-    config = SyncConfig.from_yaml(config_file)
+    config = CrumpConfig.from_yaml(config_file)
 
     # Auto-detect (no job name provided)
     result = config.get_job_or_auto_detect(None)
@@ -43,7 +43,7 @@ jobs:
       name: db_name
 """)
 
-    config = SyncConfig.from_yaml(config_file)
+    config = CrumpConfig.from_yaml(config_file)
 
     # Explicit job name
     result = config.get_job_or_auto_detect("my_job")
@@ -72,7 +72,7 @@ jobs:
       email: db_email
 """)
 
-    config = SyncConfig.from_yaml(config_file)
+    config = CrumpConfig.from_yaml(config_file)
 
     # Auto-detect should fail with multiple jobs
     with pytest.raises(ValueError, match="Config contains 2 jobs"):
@@ -99,7 +99,7 @@ jobs:
       name: db_name
 """)
 
-    config = SyncConfig.from_yaml(config_file)
+    config = CrumpConfig.from_yaml(config_file)
 
     # Nonexistent job
     result = config.get_job_or_auto_detect("nonexistent")
@@ -111,7 +111,7 @@ def test_get_job_or_auto_detect_empty_config(tmp_path: Path) -> None:
     config_file = tmp_path / "crump_config.yaml"
     config_file.write_text("jobs: {}")
 
-    config = SyncConfig.from_yaml(config_file)
+    config = CrumpConfig.from_yaml(config_file)
 
     # Empty config
     result = config.get_job_or_auto_detect(None)

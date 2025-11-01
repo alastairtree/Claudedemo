@@ -99,9 +99,9 @@ class TestPrepareCommandIntegration:
         assert config_file.exists()
 
         # Load config and check job was created with auto-generated name
-        from crump.config import SyncConfig
+        from crump.config import CrumpConfig
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         # Expected name: "test_data_2024.csv" -> "test_data"
         assert "test_data" in config.jobs
         job = config.jobs["test_data"]
@@ -124,9 +124,9 @@ class TestPrepareCommandIntegration:
         assert config_file.exists()
 
         # Load config and check job was created with custom name
-        from crump.config import SyncConfig
+        from crump.config import CrumpConfig
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         assert "my_custom_job" in config.jobs
         assert "test_data" not in config.jobs
 
@@ -149,9 +149,9 @@ class TestPrepareCommandIntegration:
         assert config_file.exists()
 
         # Load config and check both jobs were created
-        from crump.config import SyncConfig
+        from crump.config import CrumpConfig
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         # Expected names: "test_data_2024.csv" -> "test_data", "user__info__123.csv" -> "user_info"
         assert "test_data" in config.jobs
         assert "user_info" in config.jobs
@@ -292,7 +292,7 @@ class TestPrepareWithFilenameDetection:
         from click.testing import CliRunner
 
         from crump.cli_prepare import prepare
-        from crump.config import SyncConfig
+        from crump.config import CrumpConfig
 
         config_file = tmp_path / "crump_config.yaml"
         runner = CliRunner()
@@ -303,7 +303,7 @@ class TestPrepareWithFilenameDetection:
         assert "Detected date pattern in filename" in result.output
 
         # Load config and verify filename_to_column was added
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.jobs["data"]
 
         assert job.filename_to_column is not None
@@ -318,7 +318,7 @@ class TestPrepareWithFilenameDetection:
         from click.testing import CliRunner
 
         from crump.cli_prepare import prepare
-        from crump.config import SyncConfig
+        from crump.config import CrumpConfig
 
         # sample_csv is from parent class fixture: "test_data_2024.csv"
         # This should match YYYYMMDD pattern (2024)
@@ -330,7 +330,7 @@ class TestPrepareWithFilenameDetection:
         assert result.exit_code == 0
 
         # Actually this file HAS a date pattern (2024), so it should detect it
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = list(config.jobs.values())[0]
         # The fixture creates "test_data_2024.csv" which contains "2024" - 4 digits
         # But our pattern looks for 8 digits (YYYYMMDD), so this should NOT match
@@ -365,7 +365,7 @@ class TestPrepareWithCDFFiles:
         from click.testing import CliRunner
 
         from crump.cli_prepare import prepare
-        from crump.config import SyncConfig
+        from crump.config import CrumpConfig
 
         if not sample_cdf.exists():
             pytest.skip("Sample CDF file not found")
@@ -383,7 +383,7 @@ class TestPrepareWithCDFFiles:
         assert "CDF file(s)" in result.output or "Extracting data from CDF file" in result.output
 
         # Load config and verify jobs were created
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         assert len(config.jobs) > 0
 
         # Verify cleanup message
@@ -394,7 +394,7 @@ class TestPrepareWithCDFFiles:
         from click.testing import CliRunner
 
         from crump.cli_prepare import prepare
-        from crump.config import SyncConfig
+        from crump.config import CrumpConfig
 
         if not sample_cdf.exists():
             pytest.skip("Sample CDF file not found")
@@ -414,7 +414,7 @@ class TestPrepareWithCDFFiles:
         assert config_file.exists()
 
         # Load config and verify jobs were created for both files
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         assert len(config.jobs) > 1
 
         # Verify we have a job for the CSV file
@@ -555,7 +555,7 @@ class TestCDFEndToEndWorkflow:
         from crump.cli_extract import extract
         from crump.cli_prepare import prepare
         from crump.cli_sync import sync
-        from crump.config import SyncConfig
+        from crump.config import CrumpConfig
 
         if not sample_cdf.exists():
             pytest.skip("Sample CDF file not found")
@@ -588,7 +588,7 @@ class TestCDFEndToEndWorkflow:
         assert config_file.exists(), "Config file was not created"
 
         # Verify config was created with jobs
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         assert len(config.jobs) > 0, "No jobs were created in config"
 
         # Step 3: Sync first job/CSV pair to database
@@ -645,7 +645,7 @@ class TestCDFEndToEndWorkflow:
         from crump.cli_extract import extract
         from crump.cli_prepare import prepare
         from crump.cli_sync import sync
-        from crump.config import SyncConfig
+        from crump.config import CrumpConfig
 
         if not sample_cdf.exists():
             pytest.skip("Sample CDF file not found")
@@ -671,7 +671,7 @@ class TestCDFEndToEndWorkflow:
         assert prepare_result.exit_code == 0
 
         # Load config and sync first job
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         first_job_name = list(config.jobs.keys())[0]
         first_job = config.jobs[first_job_name]
         first_csv = csv_files[0]

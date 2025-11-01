@@ -337,7 +337,7 @@ class Index:
         self.columns = columns
 
 
-class SyncJob:
+class CrumpJob:
     """Configuration for a single sync job."""
 
     def __init__(
@@ -378,41 +378,41 @@ class SyncJob:
             )
 
 
-class SyncConfig:
+class CrumpConfig:
     """Configuration for data synchronization."""
 
     def __init__(
-        self, jobs: dict[str, SyncJob], id_column_matchers: list[str] | None = None
+        self, jobs: dict[str, CrumpJob], id_column_matchers: list[str] | None = None
     ) -> None:
         """Initialize sync configuration.
 
         Args:
-            jobs: Dictionary of job name to SyncJob
+            jobs: Dictionary of job name to CrumpJob
             id_column_matchers: Optional list of column name patterns to match as ID columns
                                (e.g., ['id', 'uuid', 'key']). If None, uses default patterns.
         """
         self.jobs = jobs
         self.id_column_matchers = id_column_matchers
 
-    def get_job(self, name: str) -> SyncJob | None:
+    def get_job(self, name: str) -> CrumpJob | None:
         """Get a job by name.
 
         Args:
             name: Name of the job
 
         Returns:
-            SyncJob if found, None otherwise
+            CrumpJob if found, None otherwise
         """
         return self.jobs.get(name)
 
-    def get_job_or_auto_detect(self, name: str | None = None) -> tuple[SyncJob, str] | None:
+    def get_job_or_auto_detect(self, name: str | None = None) -> tuple[CrumpJob, str] | None:
         """Get a job by name, or auto-detect if there's only one job.
 
         Args:
             name: Name of the job (optional - if None, auto-detect single job)
 
         Returns:
-            Tuple of (SyncJob, job_name) if found/detected, None otherwise
+            Tuple of (CrumpJob, job_name) if found/detected, None otherwise
 
         Raises:
             ValueError: If name is None and config has multiple jobs
@@ -440,14 +440,14 @@ class SyncConfig:
         )
 
     @classmethod
-    def from_yaml(cls, config_path: Path) -> SyncConfig:
+    def from_yaml(cls, config_path: Path) -> CrumpConfig:
         r"""Load configuration from a YAML file.
 
         Args:
             config_path: Path to the YAML configuration file
 
         Returns:
-            SyncConfig instance
+            CrumpConfig instance
 
         Raises:
             FileNotFoundError: If config file doesn't exist
@@ -602,7 +602,7 @@ class SyncConfig:
             )
 
     @staticmethod
-    def _parse_job(name: str, job_data: dict[str, Any]) -> SyncJob:
+    def _parse_job(name: str, job_data: dict[str, Any]) -> CrumpJob:
         """Parse a job from configuration data.
 
         Args:
@@ -610,7 +610,7 @@ class SyncConfig:
             job_data: Job configuration dictionary
 
         Returns:
-            SyncJob instance
+            CrumpJob instance
 
         Raises:
             ValueError: If job configuration is invalid
@@ -632,7 +632,7 @@ class SyncConfig:
 
         id_mapping = []
         for csv_col, value in id_data.items():
-            id_mapping.append(SyncConfig._parse_column_mapping(csv_col, value, name))
+            id_mapping.append(CrumpConfig._parse_column_mapping(csv_col, value, name))
 
         # Parse columns as a dict: {csv_column: db_column} or {csv_column: {db_column: x, type: y}}
         columns = []
@@ -645,9 +645,9 @@ class SyncConfig:
                 # Handle multiple custom functions with null keys (collected as list)
                 if csv_col is None and isinstance(value, list):
                     for item in value:
-                        columns.append(SyncConfig._parse_column_mapping(csv_col, item, name))
+                        columns.append(CrumpConfig._parse_column_mapping(csv_col, item, name))
                 else:
-                    columns.append(SyncConfig._parse_column_mapping(csv_col, value, name))
+                    columns.append(CrumpConfig._parse_column_mapping(csv_col, value, name))
 
         # Parse optional filename_to_column
         filename_to_column = None
@@ -748,7 +748,7 @@ class SyncConfig:
                     f"Job '{name}' sample_percentage must be between 0 and 100, got {sample_percentage}"
                 )
 
-        return SyncJob(
+        return CrumpJob(
             name=name,
             target_table=job_data["target_table"],
             id_mapping=id_mapping,
@@ -758,11 +758,11 @@ class SyncConfig:
             sample_percentage=sample_percentage,
         )
 
-    def add_or_update_job(self, job: SyncJob, force: bool = False) -> bool:
+    def add_or_update_job(self, job: CrumpJob, force: bool = False) -> bool:
         """Add a new job or update an existing one.
 
         Args:
-            job: SyncJob to add or update
+            job: CrumpJob to add or update
             force: If True, overwrite existing job. If False, raise error if job exists.
 
         Returns:
