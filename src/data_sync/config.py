@@ -882,3 +882,45 @@ class SyncConfig:
 
         with open(config_path, "w", encoding="utf-8") as f:
             yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)
+
+
+def apply_row_transformations(
+    row: dict[str, Any],
+    sync_columns: list[ColumnMapping],
+    filename_to_column: FilenameToColumn | None = None,
+    filename_values: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Apply column transformations to a CSV row.
+
+    This is a shared helper function used by both sync and extract operations
+    to apply the same transformations consistently.
+
+    Args:
+        row: Dictionary representing a CSV row (column_name -> value)
+        sync_columns: List of ColumnMapping objects defining transformations
+        filename_to_column: Optional FilenameToColumn configuration
+        filename_values: Optional dict of values extracted from filename
+
+    Returns:
+        Dictionary with transformed values (db_column_name -> value)
+    """
+    row_data = {}
+
+    # Process each column mapping
+    for col_mapping in sync_columns:
+        # Check if this column uses a custom function/expression
+        if col_mapping.expression or col_mapping.function:
+            # Apply custom function/expression
+            row_data[col_mapping.db_column] = col_mapping.apply_custom_function(row)
+        elif col_mapping.csv_column and col_mapping.csv_column in row:
+            csv_value = row[col_mapping.csv_column]
+            # Apply lookup transformation if configured
+            row_data[col_mapping.db_column] = col_mapping.apply_lookup(csv_value)
+
+    # Add filename values if configured
+    if filename_to_column and filename_values:
+        for col_name, col_mapping in filename_to_column.columns.items():
+            if col_name in filename_values:
+                row_data[col_mapping.db_column] = filename_values[col_name]
+
+    return row_data

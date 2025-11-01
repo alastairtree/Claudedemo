@@ -481,6 +481,107 @@ filename_to_column:
       type: varchar(10)  # Override detected type
 ```
 
+## CDF File Support
+
+Data-sync has built-in support for Common Data Format (CDF) science data files.
+
+### CDF to Database Sync
+
+Automatically extract CDF files to CSV and sync to database:
+
+```bash
+data-sync sync science_data.cdf config.yaml my_job --db-url postgresql://localhost/mydb
+```
+
+**How it works**:
+1. CDF file is extracted to temporary CSV files
+2. CSV data is processed using job configuration
+3. Data is synced to database with all transformations applied
+4. Temporary files are cleaned up automatically
+
+### CDF Extraction Modes
+
+The `extract` command supports two modes for CDF files:
+
+#### Raw Extraction Mode
+
+Extracts all CDF variables to CSV files without configuration:
+
+```bash
+# Extract all variables
+data-sync extract science_data.cdf
+
+# Extract specific variables
+data-sync extract data.cdf -v epoch -v vectors
+
+# Limit records for testing
+data-sync extract data.cdf --max-records 100
+```
+
+**Features**:
+- Automatic column naming from CDF metadata
+- Array variables expanded into multiple columns
+- Optionally merge variables with same record count
+- Customizable output filenames
+
+#### Config-Based Extraction Mode
+
+Apply the same column mappings and transformations as `sync` command, but output to CSV:
+
+```bash
+# Extract with column selection and mapping
+data-sync extract science_data.cdf --config config.yaml --job vectors_job
+
+# Multiple files with transformations
+data-sync extract *.cdf --config config.yaml --job my_job -o output/
+```
+
+**Features**:
+- Same column selection as sync command
+- Column renaming and type conversion
+- Lookup transformations, expressions, and custom functions
+- Filename-based value extraction
+- Produces CSV that mirrors what would be synced to database
+
+### Use Cases
+
+**Preview data before syncing**:
+```bash
+# Extract with config to see what will be synced
+data-sync extract data.cdf --config config.yaml --job my_job --max-records 10
+
+# Review the output CSV
+head output.csv
+
+# If satisfied, sync to database
+data-sync sync data.cdf config.yaml my_job
+```
+
+**Generate processed CSV files**:
+```bash
+# Apply transformations and save as CSV for other tools
+data-sync extract *.cdf --config config.yaml --job processed_data -o ./processed/
+```
+
+**Test configurations**:
+```bash
+# Test with limited records
+data-sync extract test_data.cdf --config config.yaml --job my_job --max-records 100
+
+# Verify output matches expectations
+python validate_output.py output.csv
+```
+
+### CDF Variable Handling
+
+**Array Variables**: Automatically expanded into multiple columns
+- 1D array `B_field[3]` becomes `B_field_0`, `B_field_1`, `B_field_2`
+- Column names use CDF labels when available
+
+**Automerge**: Variables with same record count are merged into single CSV (configurable)
+
+**Metadata**: CDF attributes and labels are used for intelligent column naming
+
 ## Next Steps
 
 - [Configuration Guide](configuration.md) - YAML configuration reference
