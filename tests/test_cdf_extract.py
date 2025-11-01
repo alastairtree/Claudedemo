@@ -9,7 +9,7 @@ import pytest
 
 from crump.cdf_extractor import extract_cdf_to_csv, extract_cdf_with_config
 from crump.cdf_reader import read_cdf_variables
-from crump.config import ColumnMapping, SyncJob
+from crump.config import ColumnMapping, CrumpJob
 
 
 @pytest.fixture
@@ -470,7 +470,7 @@ def test_extract_max_records_none_extracts_all(solo_cdf_file: Path, tmp_path: Pa
 def test_extract_cdf_with_config_basic(imap_cdf_file: Path, tmp_path: Path) -> None:
     """Test extracting CDF with config-based column mapping."""
     # Create a simple job config
-    job = SyncJob(
+    job = CrumpJob(
         name="test_job",
         target_table="test_table",
         id_mapping=[ColumnMapping(csv_column="epoch", db_column="id")],
@@ -510,7 +510,7 @@ def test_extract_cdf_with_config_basic(imap_cdf_file: Path, tmp_path: Path) -> N
 def test_extract_cdf_with_config_column_renaming(imap_cdf_file: Path, tmp_path: Path) -> None:
     """Test that config-based extraction renames columns correctly."""
     # Create a job with column renaming
-    job = SyncJob(
+    job = CrumpJob(
         name="test_job",
         target_table="test_table",
         id_mapping=[ColumnMapping(csv_column="epoch", db_column="timestamp")],
@@ -543,7 +543,7 @@ def test_extract_cdf_with_config_max_records(solo_cdf_file: Path, tmp_path: Path
     """Test that max_records works with config-based extraction."""
     max_records = 50
 
-    job = SyncJob(
+    job = CrumpJob(
         name="test_job",
         target_table="test_table",
         id_mapping=[ColumnMapping(csv_column="EPOCH", db_column="id")],
@@ -575,7 +575,7 @@ def test_extract_cdf_with_config_max_records(solo_cdf_file: Path, tmp_path: Path
 def test_extract_cdf_with_config_missing_column(imap_cdf_file: Path, tmp_path: Path) -> None:
     """Test that extraction returns empty list when column mappings don't match."""
     # Create a job that references a non-existent column
-    job = SyncJob(
+    job = CrumpJob(
         name="test_job",
         target_table="test_table",
         id_mapping=[ColumnMapping(csv_column="nonexistent_column", db_column="id")],

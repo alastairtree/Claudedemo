@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from crump.config import SyncConfig
+from crump.config import CrumpConfig
 
 
 class TestConfigParsing:
@@ -24,7 +24,7 @@ jobs:
       email: email
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         assert len(config.jobs) == 1
         assert "test_job" in config.jobs
 
@@ -48,7 +48,7 @@ jobs:
       product_id: id
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("sync_all")
         assert job is not None
         assert job.columns == []
@@ -58,7 +58,7 @@ jobs:
         config_file = tmp_path / "nonexistent.yaml"
 
         with pytest.raises(FileNotFoundError, match="Config file not found"):
-            SyncConfig.from_yaml(config_file)
+            CrumpConfig.from_yaml(config_file)
 
     def test_config_missing_jobs(self, tmp_path: Path) -> None:
         """Test error when config file doesn't have jobs section."""
@@ -66,7 +66,7 @@ jobs:
         config_file.write_text("other_section: value")
 
         with pytest.raises(ValueError, match="must contain 'jobs' section"):
-            SyncConfig.from_yaml(config_file)
+            CrumpConfig.from_yaml(config_file)
 
     def test_config_missing_target_table(self, tmp_path: Path) -> None:
         """Test error when job is missing target_table."""
@@ -79,7 +79,7 @@ jobs:
 """)
 
         with pytest.raises(ValueError, match="missing 'target_table'"):
-            SyncConfig.from_yaml(config_file)
+            CrumpConfig.from_yaml(config_file)
 
     def test_config_missing_id_mapping(self, tmp_path: Path) -> None:
         """Test error when job is missing id_mapping."""
@@ -91,7 +91,7 @@ jobs:
 """)
 
         with pytest.raises(ValueError, match="missing 'id_mapping'"):
-            SyncConfig.from_yaml(config_file)
+            CrumpConfig.from_yaml(config_file)
 
     def test_get_nonexistent_job(self, tmp_path: Path) -> None:
         """Test getting a job that doesn't exist."""
@@ -104,7 +104,7 @@ jobs:
       id: id
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("nonexistent")
         assert job is None
 
@@ -137,7 +137,7 @@ jobs:
         type: text
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("typed_job")
 
         assert job is not None
@@ -180,7 +180,7 @@ jobs:
         db_column: full_name
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_job")
 
         assert job is not None
@@ -206,7 +206,7 @@ jobs:
 """)
 
         with pytest.raises(ValueError, match="must have 'db_column'"):
-            SyncConfig.from_yaml(config_file)
+            CrumpConfig.from_yaml(config_file)
 
 
 class TestIdColumnMatchers:
@@ -229,7 +229,7 @@ jobs:
       name: full_name
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
 
         assert config.id_column_matchers is not None
         assert config.id_column_matchers == ["customer_id", "account_id", "user_id"]
@@ -247,7 +247,7 @@ jobs:
       name: full_name
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
 
         assert config.id_column_matchers is None
 
@@ -264,26 +264,26 @@ jobs:
 """)
 
         with pytest.raises(ValueError, match="id_column_matchers must be a list"):
-            SyncConfig.from_yaml(config_file)
+            CrumpConfig.from_yaml(config_file)
 
     def test_save_config_with_id_column_matchers(self, tmp_path: Path) -> None:
         """Test saving config with id_column_matchers."""
-        from crump.config import ColumnMapping, SyncJob
+        from crump.config import ColumnMapping, CrumpJob
 
-        job = SyncJob(
+        job = CrumpJob(
             name="test_job",
             target_table="users",
             id_mapping=[ColumnMapping("user_id", "id")],
             columns=[ColumnMapping("name", "full_name")],
         )
 
-        config = SyncConfig(jobs={"test_job": job}, id_column_matchers=["custom_id", "record_id"])
+        config = CrumpConfig(jobs={"test_job": job}, id_column_matchers=["custom_id", "record_id"])
 
         config_file = tmp_path / "crump_config.yaml"
         config.save_to_yaml(config_file)
 
         # Reload and verify
-        loaded_config = SyncConfig.from_yaml(config_file)
+        loaded_config = CrumpConfig.from_yaml(config_file)
         assert loaded_config.id_column_matchers == ["custom_id", "record_id"]
 
 
@@ -304,7 +304,7 @@ jobs:
       ip_address: ip
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_job")
         assert job is not None
         assert len(job.id_mapping) == 2
@@ -315,9 +315,9 @@ jobs:
 
     def test_save_config_with_compound_primary_key(self, tmp_path: Path) -> None:
         """Test saving config with compound primary key."""
-        from crump.config import ColumnMapping, SyncJob
+        from crump.config import ColumnMapping, CrumpJob
 
-        job = SyncJob(
+        job = CrumpJob(
             name="test_job",
             target_table="sales",
             id_mapping=[
@@ -327,12 +327,12 @@ jobs:
             columns=[ColumnMapping("quantity", "qty")],
         )
 
-        config = SyncConfig(jobs={"test_job": job})
+        config = CrumpConfig(jobs={"test_job": job})
         config_file = tmp_path / "crump_config.yaml"
         config.save_to_yaml(config_file)
 
         # Reload and verify
-        loaded_config = SyncConfig.from_yaml(config_file)
+        loaded_config = CrumpConfig.from_yaml(config_file)
         loaded_job = loaded_config.get_job("test_job")
         assert loaded_job is not None
         assert len(loaded_job.id_mapping) == 2
@@ -361,7 +361,7 @@ jobs:
             order: ASC
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_job")
         assert job is not None
         assert len(job.indexes) == 1
@@ -391,7 +391,7 @@ jobs:
             order: DESC
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_job")
         assert job is not None
         assert len(job.indexes) == 1
@@ -426,7 +426,7 @@ jobs:
             order: ASC
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_job")
         assert job is not None
         assert len(job.indexes) == 2
@@ -435,9 +435,9 @@ jobs:
 
     def test_save_config_with_indexes(self, tmp_path: Path) -> None:
         """Test saving config with indexes."""
-        from crump.config import ColumnMapping, Index, IndexColumn, SyncJob
+        from crump.config import ColumnMapping, CrumpJob, Index, IndexColumn
 
-        job = SyncJob(
+        job = CrumpJob(
             name="test_job",
             target_table="products",
             id_mapping=[ColumnMapping("product_id", "id")],
@@ -450,12 +450,12 @@ jobs:
             ],
         )
 
-        config = SyncConfig(jobs={"test_job": job})
+        config = CrumpConfig(jobs={"test_job": job})
         config_file = tmp_path / "crump_config.yaml"
         config.save_to_yaml(config_file)
 
         # Reload and verify
-        loaded_config = SyncConfig.from_yaml(config_file)
+        loaded_config = CrumpConfig.from_yaml(config_file)
         loaded_job = loaded_config.get_job("test_job")
         assert loaded_job is not None
         assert len(loaded_job.indexes) == 1
@@ -586,7 +586,7 @@ jobs:
           type: varchar(10)
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_job")
         assert job is not None
         assert job.filename_to_column is not None
@@ -621,7 +621,7 @@ jobs:
           use_to_delete_old_rows: true
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_job")
         assert job is not None
         assert job.filename_to_column is not None
@@ -646,7 +646,7 @@ jobs:
 """)
 
         with pytest.raises(ValueError, match="cannot have both 'template' and 'regex'"):
-            SyncConfig.from_yaml(config_file)
+            CrumpConfig.from_yaml(config_file)
 
     def test_config_with_neither_template_nor_regex_error(self, tmp_path: Path) -> None:
         """Test that config without template or regex raises error."""
@@ -666,15 +666,15 @@ jobs:
         with pytest.raises(
             ValueError, match="filename_to_column must have either 'template' or 'regex'"
         ):
-            SyncConfig.from_yaml(config_file)
+            CrumpConfig.from_yaml(config_file)
 
     def test_save_config_with_filename_to_column(self, tmp_path: Path) -> None:
         """Test saving config with filename_to_column."""
         from crump.config import (
             ColumnMapping,
+            CrumpJob,
             FilenameColumnMapping,
             FilenameToColumn,
-            SyncJob,
         )
 
         ftc_columns = {
@@ -683,7 +683,7 @@ jobs:
         }
         ftc = FilenameToColumn(columns=ftc_columns, template="[mission]_[date].csv")
 
-        job = SyncJob(
+        job = CrumpJob(
             name="test_job",
             target_table="observations",
             id_mapping=[ColumnMapping("obs_id", "id")],
@@ -691,12 +691,12 @@ jobs:
             filename_to_column=ftc,
         )
 
-        config = SyncConfig(jobs={"test_job": job})
+        config = CrumpConfig(jobs={"test_job": job})
         config_file = tmp_path / "crump_config.yaml"
         config.save_to_yaml(config_file)
 
         # Reload and verify
-        loaded_config = SyncConfig.from_yaml(config_file)
+        loaded_config = CrumpConfig.from_yaml(config_file)
         loaded_job = loaded_config.get_job("test_job")
         assert loaded_job is not None
         assert loaded_job.filename_to_column is not None
@@ -724,7 +724,7 @@ jobs:
     sample_percentage: 10
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_job")
         assert job is not None
         assert job.sample_percentage == 10
@@ -742,7 +742,7 @@ jobs:
       name: full_name
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_job")
         assert job is not None
         assert job.sample_percentage is None
@@ -759,7 +759,7 @@ jobs:
     sample_percentage: 100
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_job")
         assert job is not None
         assert job.sample_percentage == 100
@@ -776,7 +776,7 @@ jobs:
     sample_percentage: 12.5
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_job")
         assert job is not None
         assert job.sample_percentage == 12.5
@@ -794,7 +794,7 @@ jobs:
 """)
 
         with pytest.raises(ValueError, match="sample_percentage must be between 0 and 100"):
-            SyncConfig.from_yaml(config_file)
+            CrumpConfig.from_yaml(config_file)
 
     def test_config_sample_percentage_out_of_range_low(self, tmp_path: Path) -> None:
         """Test that sample_percentage < 0 raises error."""
@@ -809,7 +809,7 @@ jobs:
 """)
 
         with pytest.raises(ValueError, match="sample_percentage must be between 0 and 100"):
-            SyncConfig.from_yaml(config_file)
+            CrumpConfig.from_yaml(config_file)
 
     def test_config_sample_percentage_invalid_type(self, tmp_path: Path) -> None:
         """Test that non-numeric sample_percentage raises error."""
@@ -824,13 +824,13 @@ jobs:
 """)
 
         with pytest.raises(ValueError, match="sample_percentage must be a number"):
-            SyncConfig.from_yaml(config_file)
+            CrumpConfig.from_yaml(config_file)
 
     def test_save_config_with_sample_percentage(self, tmp_path: Path) -> None:
         """Test saving config with sample_percentage."""
-        from crump.config import ColumnMapping, SyncJob
+        from crump.config import ColumnMapping, CrumpJob
 
-        job = SyncJob(
+        job = CrumpJob(
             name="test_job",
             target_table="users",
             id_mapping=[ColumnMapping("user_id", "id")],
@@ -838,28 +838,28 @@ jobs:
             sample_percentage=25.0,
         )
 
-        config = SyncConfig(jobs={"test_job": job})
+        config = CrumpConfig(jobs={"test_job": job})
         config_file = tmp_path / "crump_config.yaml"
         config.save_to_yaml(config_file)
 
         # Reload and verify
-        loaded_config = SyncConfig.from_yaml(config_file)
+        loaded_config = CrumpConfig.from_yaml(config_file)
         loaded_job = loaded_config.get_job("test_job")
         assert loaded_job is not None
         assert loaded_job.sample_percentage == 25.0
 
     def test_save_config_without_sample_percentage(self, tmp_path: Path) -> None:
         """Test saving config without sample_percentage (should not appear in YAML)."""
-        from crump.config import ColumnMapping, SyncJob
+        from crump.config import ColumnMapping, CrumpJob
 
-        job = SyncJob(
+        job = CrumpJob(
             name="test_job",
             target_table="users",
             id_mapping=[ColumnMapping("user_id", "id")],
             columns=[ColumnMapping("name", "full_name")],
         )
 
-        config = SyncConfig(jobs={"test_job": job})
+        config = CrumpConfig(jobs={"test_job": job})
         config_file = tmp_path / "crump_config.yaml"
         config.save_to_yaml(config_file)
 
@@ -869,9 +869,9 @@ jobs:
 
     def test_save_config_with_sample_percentage_100(self, tmp_path: Path) -> None:
         """Test saving config with sample_percentage=100 (should not appear in YAML)."""
-        from crump.config import ColumnMapping, SyncJob
+        from crump.config import ColumnMapping, CrumpJob
 
-        job = SyncJob(
+        job = CrumpJob(
             name="test_job",
             target_table="users",
             id_mapping=[ColumnMapping("user_id", "id")],
@@ -879,7 +879,7 @@ jobs:
             sample_percentage=100,
         )
 
-        config = SyncConfig(jobs={"test_job": job})
+        config = CrumpConfig(jobs={"test_job": job})
         config_file = tmp_path / "crump_config.yaml"
         config.save_to_yaml(config_file)
 
@@ -910,7 +910,7 @@ jobs:
           pending: 2
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_job")
         assert job is not None
         assert len(job.columns) == 1
@@ -986,7 +986,7 @@ jobs:
           XL: XLG
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_job")
         assert job is not None
         assert len(job.columns) == 2
@@ -1013,13 +1013,13 @@ jobs:
 """)
 
         with pytest.raises(ValueError, match="lookup must be a dictionary"):
-            SyncConfig.from_yaml(config_file)
+            CrumpConfig.from_yaml(config_file)
 
     def test_save_config_with_lookup(self, tmp_path: Path) -> None:
         """Test saving config with lookup."""
-        from crump.config import ColumnMapping, SyncJob
+        from crump.config import ColumnMapping, CrumpJob
 
-        job = SyncJob(
+        job = CrumpJob(
             name="test_job",
             target_table="users",
             id_mapping=[ColumnMapping("user_id", "id")],
@@ -1033,12 +1033,12 @@ jobs:
             ],
         )
 
-        config = SyncConfig(jobs={"test_job": job})
+        config = CrumpConfig(jobs={"test_job": job})
         config_file = tmp_path / "crump_config.yaml"
         config.save_to_yaml(config_file)
 
         # Reload and verify
-        loaded_config = SyncConfig.from_yaml(config_file)
+        loaded_config = CrumpConfig.from_yaml(config_file)
         loaded_job = loaded_config.get_job("test_job")
         assert loaded_job is not None
         assert len(loaded_job.columns) == 1
@@ -1048,16 +1048,16 @@ jobs:
 
     def test_save_config_without_lookup(self, tmp_path: Path) -> None:
         """Test saving config without lookup (should not appear in YAML)."""
-        from crump.config import ColumnMapping, SyncJob
+        from crump.config import ColumnMapping, CrumpJob
 
-        job = SyncJob(
+        job = CrumpJob(
             name="test_job",
             target_table="users",
             id_mapping=[ColumnMapping("user_id", "id")],
             columns=[ColumnMapping("status", "status_code", data_type="integer")],
         )
 
-        config = SyncConfig(jobs={"test_job": job})
+        config = CrumpConfig(jobs={"test_job": job})
         config_file = tmp_path / "crump_config.yaml"
         config.save_to_yaml(config_file)
 
@@ -1088,7 +1088,7 @@ jobs:
         type: float
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_job")
         assert job is not None
         assert len(job.columns) == 3
@@ -1119,7 +1119,7 @@ jobs:
         input_columns: [value1, value2]
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_job")
         assert job is not None
         assert len(job.columns) == 1
@@ -1239,7 +1239,7 @@ jobs:
 """)
 
         with pytest.raises(ValueError, match="expression must be a string"):
-            SyncConfig.from_yaml(config_file)
+            CrumpConfig.from_yaml(config_file)
 
     def test_invalid_function_type(self, tmp_path: Path) -> None:
         """Test that non-string function raises error."""
@@ -1258,7 +1258,7 @@ jobs:
 """)
 
         with pytest.raises(ValueError, match="function must be a string"):
-            SyncConfig.from_yaml(config_file)
+            CrumpConfig.from_yaml(config_file)
 
     def test_invalid_input_columns_type(self, tmp_path: Path) -> None:
         """Test that non-list input_columns raises error."""
@@ -1277,13 +1277,13 @@ jobs:
 """)
 
         with pytest.raises(ValueError, match="input_columns must be a list"):
-            SyncConfig.from_yaml(config_file)
+            CrumpConfig.from_yaml(config_file)
 
     def test_save_config_with_expression(self, tmp_path: Path) -> None:
         """Test saving config with expression."""
-        from crump.config import ColumnMapping, SyncJob
+        from crump.config import ColumnMapping, CrumpJob
 
-        job = SyncJob(
+        job = CrumpJob(
             name="test_job",
             target_table="metrics",
             id_mapping=[ColumnMapping("id", "id")],
@@ -1298,12 +1298,12 @@ jobs:
             ],
         )
 
-        config = SyncConfig(jobs={"test_job": job})
+        config = CrumpConfig(jobs={"test_job": job})
         config_file = tmp_path / "crump_config.yaml"
         config.save_to_yaml(config_file)
 
         # Reload and verify
-        loaded_config = SyncConfig.from_yaml(config_file)
+        loaded_config = CrumpConfig.from_yaml(config_file)
         loaded_job = loaded_config.get_job("test_job")
         assert loaded_job is not None
         assert len(loaded_job.columns) == 1
@@ -1315,9 +1315,9 @@ jobs:
 
     def test_save_config_with_function(self, tmp_path: Path) -> None:
         """Test saving config with external function."""
-        from crump.config import ColumnMapping, SyncJob
+        from crump.config import ColumnMapping, CrumpJob
 
-        job = SyncJob(
+        job = CrumpJob(
             name="test_job",
             target_table="metrics",
             id_mapping=[ColumnMapping("id", "id")],
@@ -1331,12 +1331,12 @@ jobs:
             ],
         )
 
-        config = SyncConfig(jobs={"test_job": job})
+        config = CrumpConfig(jobs={"test_job": job})
         config_file = tmp_path / "crump_config.yaml"
         config.save_to_yaml(config_file)
 
         # Reload and verify
-        loaded_config = SyncConfig.from_yaml(config_file)
+        loaded_config = CrumpConfig.from_yaml(config_file)
         loaded_job = loaded_config.get_job("test_job")
         assert loaded_job is not None
         assert len(loaded_job.columns) == 1
@@ -1363,7 +1363,7 @@ jobs:
         type: float
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_job")
         assert job is not None
         assert len(job.columns) == 1
@@ -1377,9 +1377,9 @@ jobs:
 
     def test_save_config_with_named_column_transformation(self, tmp_path: Path) -> None:
         """Test saving config with expression on named CSV column."""
-        from crump.config import ColumnMapping, SyncJob
+        from crump.config import ColumnMapping, CrumpJob
 
-        job = SyncJob(
+        job = CrumpJob(
             name="test_job",
             target_table="sensors",
             id_mapping=[ColumnMapping("id", "id")],
@@ -1394,12 +1394,12 @@ jobs:
             ],
         )
 
-        config = SyncConfig(jobs={"test_job": job})
+        config = CrumpConfig(jobs={"test_job": job})
         config_file = tmp_path / "crump_config.yaml"
         config.save_to_yaml(config_file)
 
         # Reload and verify
-        loaded_config = SyncConfig.from_yaml(config_file)
+        loaded_config = CrumpConfig.from_yaml(config_file)
         loaded_job = loaded_config.get_job("test_job")
         assert loaded_job is not None
         assert len(loaded_job.columns) == 1
@@ -1427,7 +1427,7 @@ jobs:
         type: float
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_job")
         assert job is not None
         assert len(job.columns) == 1

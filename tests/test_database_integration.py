@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from crump.config import SyncConfig
+from crump.config import CrumpConfig
 from crump.database import DatabaseConnection, sync_csv_to_postgres
 from tests.db_test_utils import execute_query, get_table_columns, get_table_indexes
 
@@ -41,7 +41,7 @@ class TestDatabaseIntegration:
         )
 
         # Load config and get job
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("sync_users")
         assert job is not None
 
@@ -90,7 +90,7 @@ class TestDatabaseIntegration:
         config_file = tmp_path / "crump_config.yaml"
         create_config_file(config_file, "sync_products", "products", {"product_id": "id"})
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("sync_products")
         assert job is not None
 
@@ -121,7 +121,7 @@ class TestDatabaseIntegration:
         config_file = tmp_path / "crump_config.yaml"
         create_config_file(config_file, "test_upsert", "test_data", {"id": "id"})
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_upsert")
 
         # First sync
@@ -159,7 +159,7 @@ jobs:
       missing_column: value
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("bad_job")
 
         with DatabaseConnection(db_url) as db, pytest.raises(ValueError, match="not found in CSV"):
@@ -192,7 +192,7 @@ jobs:
           use_to_delete_old_rows: true
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("daily_sales")
         assert job is not None
         assert job.filename_to_column is not None
@@ -247,7 +247,7 @@ jobs:
           use_to_delete_old_rows: true
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("daily_data")
 
         filename_values = job.filename_to_column.extract_values_from_filename(csv_file)
@@ -296,7 +296,7 @@ jobs:
           use_to_delete_old_rows: true
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("daily_data")
 
         # Sync data for 2024-01-15
@@ -371,7 +371,7 @@ jobs:
         type: text
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("typed_data")
 
         # Create CSV with sample data
@@ -417,7 +417,7 @@ jobs:
       name: customer_name
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("evolving_data")
 
         csv_file = tmp_path / "customers.csv"
@@ -451,7 +451,7 @@ jobs:
         type: integer
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("evolving_data")
 
         # Sync with new columns
@@ -480,7 +480,7 @@ jobs:
     @pytest.mark.parametrize("db_url", ["sqlite", "postgres"], indirect=True)
     def test_compound_primary_key(self, tmp_path: Path, db_url: str) -> None:
         """Test syncing with compound primary key."""
-        from crump.config import ColumnMapping, SyncJob
+        from crump.config import ColumnMapping, CrumpJob
         from tests.test_helpers import create_csv_file
 
         # Create CSV with data
@@ -496,7 +496,7 @@ jobs:
         )
 
         # Create job with compound primary key
-        job = SyncJob(
+        job = CrumpJob(
             name="sales",
             target_table="sales",
             id_mapping=[
@@ -547,7 +547,7 @@ jobs:
     @pytest.mark.parametrize("db_url", ["sqlite", "postgres"], indirect=True)
     def test_single_column_index(self, tmp_path: Path, db_url: str) -> None:
         """Test creating single-column index."""
-        from crump.config import ColumnMapping, Index, IndexColumn, SyncJob
+        from crump.config import ColumnMapping, CrumpJob, Index, IndexColumn
         from tests.test_helpers import create_csv_file
 
         # Create CSV
@@ -559,7 +559,7 @@ jobs:
         )
 
         # Create job with index
-        job = SyncJob(
+        job = CrumpJob(
             name="users",
             target_table="users",
             id_mapping=[ColumnMapping("user_id", "id")],
@@ -583,7 +583,7 @@ jobs:
     @pytest.mark.parametrize("db_url", ["sqlite", "postgres"], indirect=True)
     def test_multi_column_index(self, tmp_path: Path, db_url: str) -> None:
         """Test creating multi-column index with different sort orders."""
-        from crump.config import ColumnMapping, Index, IndexColumn, SyncJob
+        from crump.config import ColumnMapping, CrumpJob, Index, IndexColumn
 
         # Create CSV
         csv_file = tmp_path / "orders.csv"
@@ -602,7 +602,7 @@ jobs:
             )
 
         # Create job with multi-column index
-        job = SyncJob(
+        job = CrumpJob(
             name="orders",
             target_table="orders",
             id_mapping=[ColumnMapping("order_id", "id")],
@@ -632,7 +632,7 @@ jobs:
     @pytest.mark.parametrize("db_url", ["sqlite", "postgres"], indirect=True)
     def test_multiple_indexes(self, tmp_path: Path, db_url: str) -> None:
         """Test creating multiple indexes on a table."""
-        from crump.config import ColumnMapping, Index, IndexColumn, SyncJob
+        from crump.config import ColumnMapping, CrumpJob, Index, IndexColumn
 
         # Create CSV
         csv_file = tmp_path / "products.csv"
@@ -644,7 +644,7 @@ jobs:
             )
 
         # Create job with multiple indexes
-        job = SyncJob(
+        job = CrumpJob(
             name="products",
             target_table="products",
             id_mapping=[ColumnMapping("product_id", "id")],
@@ -707,7 +707,7 @@ jobs:
           type: varchar(10)
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("obs_data")
         assert job is not None
         assert job.filename_to_column is not None
@@ -775,7 +775,7 @@ jobs:
           type: integer
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("versioned_data")
 
         # Extract values using regex
@@ -827,7 +827,7 @@ jobs:
           type: varchar(10)
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("mission_data")
 
         # First sync: mission A, date 2024-01-15, version v1
@@ -916,7 +916,7 @@ jobs:
           type: varchar(10)
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("mission_data")
 
         # First sync: mission A, date 2024-01-15, version v1
@@ -999,7 +999,7 @@ jobs:
     sample_percentage: 10
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_sample")
         assert job is not None
 
@@ -1041,7 +1041,7 @@ jobs:
     sample_percentage: 50
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_sample")
         assert job is not None
 
@@ -1079,7 +1079,7 @@ jobs:
     sample_percentage: 100
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_sample")
         assert job is not None
 
@@ -1110,7 +1110,7 @@ jobs:
       id: id
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_sample")
         assert job is not None
 
@@ -1143,7 +1143,7 @@ jobs:
     sample_percentage: 10
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_sample")
         assert job is not None
 
@@ -1193,7 +1193,7 @@ jobs:
           pending: 2
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_lookup")
         assert job is not None
 
@@ -1239,7 +1239,7 @@ jobs:
           inactive: 0
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_lookup")
         assert job is not None
 
@@ -1289,7 +1289,7 @@ jobs:
           XL: Extra Large
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_lookup")
         assert job is not None
 
@@ -1345,7 +1345,7 @@ jobs:
           high: 3
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_lookup")
         assert job is not None
 
@@ -1397,7 +1397,7 @@ jobs:
         type: float
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_expression")
         assert job is not None
 
@@ -1445,7 +1445,7 @@ jobs:
         type: float
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_function")
         assert job is not None
 
@@ -1492,7 +1492,7 @@ jobs:
         type: text
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_concat")
         assert job is not None
 
@@ -1558,7 +1558,7 @@ jobs:
         type: text
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_multi")
         assert job is not None
 
@@ -1604,7 +1604,7 @@ jobs:
         type: float
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_dryrun")
         assert job is not None
 
@@ -1646,7 +1646,7 @@ jobs:
         type: float
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_named")
         assert job is not None
 
@@ -1689,7 +1689,7 @@ jobs:
         type: float
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_named_func")
         assert job is not None
 
@@ -1732,7 +1732,7 @@ jobs:
         type: float
 """)
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         job = config.get_job("test_poly")
         assert job is not None
 

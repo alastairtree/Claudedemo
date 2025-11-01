@@ -11,12 +11,12 @@ from rich.table import Table
 from crump.cdf_extractor import extract_cdf_to_csv
 from crump.config import (
     ColumnMapping,
+    CrumpConfig,
+    CrumpJob,
     FilenameColumnMapping,
     FilenameToColumn,
     Index,
     IndexColumn,
-    SyncConfig,
-    SyncJob,
 )
 from crump.type_detection import analyze_csv_types_and_nullable, suggest_id_column
 
@@ -249,7 +249,7 @@ def _extract_cdf_to_temp_csv(cdf_file: Path, temp_dir: Path, max_records: int = 
 
 
 def _display_prepare_results(
-    job: SyncJob,
+    job: CrumpJob,
     config: Path,
     id_column: str,
     column_info: dict[str, tuple[str, bool]],
@@ -259,7 +259,7 @@ def _display_prepare_results(
     """Display the results of the prepare command.
 
     Args:
-        job: The created SyncJob
+        job: The created CrumpJob
         config: Path to config file
         id_column: Name of the ID column
         column_info: Dictionary mapping column names to (data_type, nullable) tuples
@@ -433,7 +433,7 @@ def prepare(file_paths: tuple[Path, ...], config: Path, job: str | None, force: 
             )
 
         # Load or create config once (used for all files)
-        sync_config = SyncConfig.from_yaml(config) if config.exists() else SyncConfig(jobs={})
+        crump_config = CrumpConfig.from_yaml(config) if config.exists() else CrumpConfig(jobs={})
 
         jobs_created = 0
         jobs_updated = 0
@@ -457,7 +457,7 @@ def prepare(file_paths: tuple[Path, ...], config: Path, job: str | None, force: 
             console.print(f"[dim]  Found {len(columns)} columns[/dim]")
 
             # Suggest ID column using matchers from config if available
-            id_column = suggest_id_column(columns, sync_config.id_column_matchers)
+            id_column = suggest_id_column(columns, crump_config.id_column_matchers)
             console.print(f"[dim]  Suggested ID column: {id_column}[/dim]")
 
             # Create column mappings and suggest indexes
@@ -473,7 +473,7 @@ def prepare(file_paths: tuple[Path, ...], config: Path, job: str | None, force: 
 
             # Create the job with ID mapping that includes nullable info
             id_type, id_nullable = column_info[id_column]
-            new_job = SyncJob(
+            new_job = CrumpJob(
                 name=job_name,
                 target_table=job_name,  # Use job name as table name
                 id_mapping=[
@@ -491,8 +491,8 @@ def prepare(file_paths: tuple[Path, ...], config: Path, job: str | None, force: 
 
             # Add or update job
             try:
-                job_exists = job_name in sync_config.jobs
-                sync_config.add_or_update_job(new_job, force=force)
+                job_exists = job_name in crump_config.jobs
+                crump_config.add_or_update_job(new_job, force=force)
 
                 if job_exists:
                     jobs_updated += 1
@@ -513,7 +513,7 @@ def prepare(file_paths: tuple[Path, ...], config: Path, job: str | None, force: 
 
         # Save config once after processing all files
         if jobs_created > 0 or jobs_updated > 0:
-            sync_config.save_to_yaml(config)
+            crump_config.save_to_yaml(config)
             console.print(f"\n[green]✓ Configuration saved to {config}[/green]")
             if jobs_created > 0:
                 console.print(f"[dim]  Jobs created: {jobs_created}[/dim]")

@@ -304,14 +304,14 @@ Follow PEP 8 and project conventions:
 # Good
 def sync_csv_to_postgres(
     file_path: Path,
-    sync_job: SyncJob,
+    crump_job: CrumpJob,
     db_url: str
 ) -> int:
     """Sync a CSV file to PostgreSQL.
 
     Args:
         file_path: Path to the CSV file
-        sync_job: Configuration for the sync job
+        crump_job: Configuration for the sync job
         db_url: Database connection string
 
     Returns:
@@ -436,14 +436,14 @@ Sync a CSV file to PostgreSQL.
 
 \`\`\`python
 from pathlib import Path
-from crump import sync_csv_to_postgres, SyncConfig
+from crump import sync_csv_to_postgres, CrumpConfig
 
-config = SyncConfig.from_yaml(Path("crump_config.yaml"))
+config = CrumpConfig.from_yaml(Path("crump_config.yaml"))
 job = config.get_job("my_job")
 
 rows = sync_csv_to_postgres(
     file_path=Path("data.csv"),
-    sync_job=job,
+    crump_job=job,
     db_url="postgresql://localhost/mydb"
 )
 \`\`\`

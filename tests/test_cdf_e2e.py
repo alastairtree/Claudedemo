@@ -22,7 +22,7 @@ class TestCDFEndToEndWorkflow:
 
         from crump.cli_prepare import prepare
         from crump.cli_sync import sync
-        from crump.config import SyncConfig
+        from crump.config import CrumpConfig
 
         if not sample_cdf.exists():
             pytest.skip("Sample CDF file not found")
@@ -37,7 +37,7 @@ class TestCDFEndToEndWorkflow:
         assert config_file.exists(), "Config file was not created"
 
         # Load config to get job name
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         assert len(config.jobs) > 0, "No jobs were created in config"
         first_job_name = list(config.jobs.keys())[0]
 
@@ -109,9 +109,9 @@ class TestCDFEndToEndWorkflow:
         prepare_result = runner.invoke(prepare, [str(sample_cdf), "--config", str(config_file)])
         assert prepare_result.exit_code == 0
 
-        from crump.config import SyncConfig
+        from crump.config import CrumpConfig
 
-        config = SyncConfig.from_yaml(config_file)
+        config = CrumpConfig.from_yaml(config_file)
         first_job_name = list(config.jobs.keys())[0]
 
         # Run sync with dry-run flag (limit to 200 rows for speed)

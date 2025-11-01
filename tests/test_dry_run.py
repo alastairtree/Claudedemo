@@ -5,11 +5,11 @@ from pathlib import Path
 
 from crump.config import (
     ColumnMapping,
+    CrumpJob,
     FilenameColumnMapping,
     FilenameToColumn,
     Index,
     IndexColumn,
-    SyncJob,
 )
 from crump.database import DatabaseConnection, sync_csv_to_postgres_dry_run
 
@@ -33,7 +33,7 @@ def test_dry_run_summary_new_table(db_url: str, tmp_path: Path) -> None:
     )
 
     # Create a sync job configuration
-    job = SyncJob(
+    job = CrumpJob(
         name="test_job",
         target_table="users",
         id_mapping=[ColumnMapping("user_id", "id")],
@@ -74,7 +74,7 @@ def test_dry_run_summary_existing_table_no_changes(db_url: str, tmp_path: Path) 
     )
 
     # First, create the table with actual data
-    job = SyncJob(
+    job = CrumpJob(
         name="test_job",
         target_table="products",
         id_mapping=[ColumnMapping("product_id", "id")],
@@ -112,7 +112,7 @@ def test_dry_run_summary_new_columns(db_url: str, tmp_path: Path) -> None:
         writer.writeheader()
         writer.writerow({"order_id": "1", "customer_name": "Alice"})
 
-    job1 = SyncJob(
+    job1 = CrumpJob(
         name="test_job",
         target_table="orders",
         id_mapping=[ColumnMapping("order_id", "id")],
@@ -132,7 +132,7 @@ def test_dry_run_summary_new_columns(db_url: str, tmp_path: Path) -> None:
         )
 
     # New job with additional columns
-    job2 = SyncJob(
+    job2 = CrumpJob(
         name="test_job",
         target_table="orders",
         id_mapping=[ColumnMapping("order_id", "id")],
@@ -173,7 +173,7 @@ def test_new_column_updates_all_rows(db_url: str, tmp_path: Path) -> None:
         writer.writerow({"user_id": "2", "name": "Bob"})
         writer.writerow({"user_id": "3", "name": "Charlie"})
 
-    job_v1 = SyncJob(
+    job_v1 = CrumpJob(
         name="test_job",
         target_table="users",
         id_mapping=[ColumnMapping("user_id", "id")],
@@ -194,7 +194,7 @@ def test_new_column_updates_all_rows(db_url: str, tmp_path: Path) -> None:
         writer.writerow({"user_id": "3", "name": "Charlie", "email": "charlie@example.com"})
         writer.writerow({"user_id": "4", "name": "Diana", "email": "diana@example.com"})
 
-    job_v2 = SyncJob(
+    job_v2 = CrumpJob(
         name="test_job",
         target_table="users",
         id_mapping=[ColumnMapping("user_id", "id")],
@@ -244,7 +244,7 @@ def test_dry_run_summary_new_indexes(db_url: str, tmp_path: Path) -> None:
         writer.writeheader()
         writer.writerow({"user_id": "1", "email": "alice@example.com"})
 
-    job_no_indexes = SyncJob(
+    job_no_indexes = CrumpJob(
         name="test_job",
         target_table="users",
         id_mapping=[ColumnMapping("user_id", "id")],
@@ -255,7 +255,7 @@ def test_dry_run_summary_new_indexes(db_url: str, tmp_path: Path) -> None:
         db.sync_csv_file(csv_file, job_no_indexes)
 
     # Create job with indexes
-    job_with_indexes = SyncJob(
+    job_with_indexes = CrumpJob(
         name="test_job",
         target_table="users",
         id_mapping=[ColumnMapping("user_id", "id")],
@@ -286,7 +286,7 @@ def test_dry_run_with_date_mapping_and_stale_records(db_url: str, tmp_path: Path
         writer.writerow({"sale_id": "2", "amount": "200"})
         writer.writerow({"sale_id": "3", "amount": "300"})
 
-    job = SyncJob(
+    job = CrumpJob(
         name="sales_job",
         target_table="sales",
         id_mapping=[ColumnMapping("sale_id", "id")],
@@ -340,7 +340,7 @@ def test_dry_run_with_compound_primary_key(db_url: str, tmp_path: Path) -> None:
         writer.writerow({"store_id": "2", "product_id": "A", "quantity": "15"})
 
     # Create a sync job with compound primary key
-    job = SyncJob(
+    job = CrumpJob(
         name="inventory_job",
         target_table="inventory",
         id_mapping=[
@@ -439,7 +439,7 @@ def test_dry_run_compound_key_with_date_mapping_matches_sync(db_url: str, tmp_pa
         )
 
     # Create a sync job with compound primary key and filename to column mapping
-    job = SyncJob(
+    job = CrumpJob(
         name="inventory_job",
         target_table="inventory",
         id_mapping=[
