@@ -395,134 +395,220 @@ def extract_cdf_to_csv(
 
 def extract_cdf_with_config(
     cdf_file_path: Path,
-    output_path: Path,
+    output_dir: Path,
     job: SyncJob,
     max_records: int | None = None,
-) -> ExtractionResult:
+    automerge: bool = True,
+    variable_names: list[str] | None = None,
+) -> list[ExtractionResult]:
     """Extract data from a CDF file to CSV using job configuration for column selection and mapping.
 
     This function extracts CDF data and applies the same column mappings and transformations
     that would be used when syncing to a database, but outputs to CSV instead.
 
+    A CDF file may contain multiple groups of variables with different record counts, resulting
+    in multiple CSV files. This function attempts to transform each one and returns results
+    for those that successfully match the column mappings.
+
     Args:
         cdf_file_path: Path to the CDF file
-        output_path: Path to the output CSV file
+        output_dir: Directory to write output CSV file(s)
         job: SyncJob configuration with column mappings and transformations
         max_records: Maximum number of records to extract (None = all)
+        automerge: Whether to merge variables with same record count during raw extraction
+        variable_names: Specific variable names to extract (None = all)
 
     Returns:
-        ExtractionResult with details about the extracted CSV
+        List of ExtractionResult objects for successfully transformed CSVs (may be empty)
 
     Raises:
-        ValueError: If CDF extraction fails or column mappings are invalid
+        ValueError: If CDF extraction fails completely
         FileNotFoundError: If CDF file doesn't exist
     """
-    # Step 1: Extract CDF to temporary CSV (raw dump)
+    # Step 1: Extract CDF to temporary CSV files (raw dump)
     temp_dir = Path(tempfile.mkdtemp(prefix="data_sync_extract_"))
+    results = []
+
     try:
         raw_results = extract_cdf_to_csv(
             cdf_file_path=cdf_file_path,
             output_dir=temp_dir,
-            filename_template=f"{cdf_file_path.stem}_raw.csv",
-            automerge=True,
+            filename_template=f"{cdf_file_path.stem}_[VARIABLE_NAME].csv",
+            automerge=automerge,
             append=False,
-            variable_names=None,
+            variable_names=variable_names,
             max_records=max_records,
         )
 
         if not raw_results:
             raise ValueError("No data could be extracted from CDF file")
 
-        # Use the first (and likely only) extracted CSV
-        raw_csv_path = raw_results[0].output_file
-
         # Step 2: Extract values from filename if configured
         filename_values = None
         if job.filename_to_column:
             filename_values = job.filename_to_column.extract_values_from_filename(cdf_file_path)
 
-        # Step 3: Read raw CSV and apply transformations
-        with open(raw_csv_path, encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            if not reader.fieldnames:
-                raise ValueError("Extracted CSV has no columns")
+        # Step 3: Try to transform each extracted CSV
+        for raw_result in raw_results:
+            raw_csv_path = raw_result.output_file
 
-            csv_columns = set(reader.fieldnames)
+            try:
+                # Attempt to process this CSV with the job configuration
+                result = _transform_csv_with_config(
+                    raw_csv_path=raw_csv_path,
+                    output_dir=output_dir,
+                    cdf_file_path=cdf_file_path,
+                    job=job,
+                    filename_values=filename_values,
+                    raw_result=raw_result,
+                )
 
-            # Step 4: Determine which columns to include in output
-            # Include ID columns
-            output_columns = []
-            sync_columns = []
+                if result:
+                    results.append(result)
 
-            # Add ID columns
-            for id_col in job.id_mapping:
-                if id_col.expression or id_col.function:
-                    # Custom function for ID
-                    sync_columns.append(id_col)
-                    output_columns.append(id_col.db_column)
-                elif id_col.csv_column and id_col.csv_column in csv_columns:
-                    sync_columns.append(id_col)
-                    output_columns.append(id_col.db_column)
-                else:
-                    raise ValueError(
-                        f"ID column '{id_col.csv_column}' not found in CDF data. "
-                        f"Available columns: {', '.join(sorted(csv_columns))}"
-                    )
+            except ValueError as e:
+                # This CSV doesn't match the column mappings - skip it silently
+                # This is expected when a CDF has multiple variable groups
+                pass
 
-            # Add data columns
-            if job.columns:
-                for col in job.columns:
-                    if col.expression or col.function:
-                        # Custom function - always include
-                        sync_columns.append(col)
-                        output_columns.append(col.db_column)
-                    elif col.csv_column and col.csv_column in csv_columns:
-                        sync_columns.append(col)
-                        output_columns.append(col.db_column)
-                    elif col.csv_column:
-                        # Column specified but not found - this might be OK if it's optional
-                        # For now, we'll skip it with a warning
-                        pass
+        return results
+
+    finally:
+        # Clean up temporary files
+        try:
+            for temp_file in temp_dir.glob("*.csv"):
+                temp_file.unlink()
+            if temp_dir.exists():
+                temp_dir.rmdir()
+        except Exception:
+            pass  # Best effort cleanup
+
+
+def _transform_csv_with_config(
+    raw_csv_path: Path,
+    output_dir: Path,
+    cdf_file_path: Path,
+    job: SyncJob,
+    filename_values: dict[str, str] | None,
+    raw_result: ExtractionResult,
+) -> ExtractionResult | None:
+    """Transform a raw CSV using job configuration.
+
+    Args:
+        raw_csv_path: Path to raw CSV file
+        output_dir: Output directory for transformed CSV
+        cdf_file_path: Original CDF file path
+        job: Job configuration
+        filename_values: Extracted filename values
+        raw_result: Result from raw extraction
+
+    Returns:
+        ExtractionResult if transformation succeeds, None if CSV doesn't match mappings
+
+    Raises:
+        ValueError: If required columns are missing from CSV
+    """
+    with open(raw_csv_path, encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        if not reader.fieldnames:
+            return None
+
+        csv_columns = set(reader.fieldnames)
+
+        # Determine which columns to include in output
+        output_columns = []
+        sync_columns = []
+
+        # Add ID columns
+        for id_col in job.id_mapping:
+            if id_col.expression or id_col.function:
+                # Custom function for ID
+                sync_columns.append(id_col)
+                output_columns.append(id_col.db_column)
+            elif id_col.csv_column and id_col.csv_column in csv_columns:
+                sync_columns.append(id_col)
+                output_columns.append(id_col.db_column)
             else:
-                # No columns specified - include all columns from CSV
-                for csv_col in sorted(csv_columns):
-                    # Check if this column is already in id_mapping
-                    if not any(
-                        id_col.csv_column == csv_col for id_col in job.id_mapping if id_col.csv_column
-                    ):
-                        # Import ColumnMapping here to avoid circular import
-                        from data_sync.config import ColumnMapping
+                raise ValueError(
+                    f"ID column '{id_col.csv_column}' not found in CSV. "
+                    f"Available columns: {', '.join(sorted(csv_columns))}"
+                )
 
-                        col_mapping = ColumnMapping(csv_column=csv_col, db_column=csv_col)
-                        sync_columns.append(col_mapping)
-                        output_columns.append(csv_col)
+        # Add data columns
+        if job.columns:
+            for col in job.columns:
+                if col.expression or col.function:
+                    # Custom function - always include
+                    sync_columns.append(col)
+                    output_columns.append(col.db_column)
+                elif col.csv_column and col.csv_column in csv_columns:
+                    sync_columns.append(col)
+                    output_columns.append(col.db_column)
+                elif col.csv_column:
+                    # Column specified but not found - skip silently
+                    pass
+        else:
+            # No columns specified - include all columns from CSV
+            for csv_col in sorted(csv_columns):
+                # Check if this column is already in id_mapping
+                if not any(
+                    id_col.csv_column == csv_col for id_col in job.id_mapping if id_col.csv_column
+                ):
+                    # Import ColumnMapping here to avoid circular import
+                    from data_sync.config import ColumnMapping
 
-            # Add filename-extracted columns if configured
-            if filename_values:
-                for col_name, col_mapping in job.filename_to_column.columns.items():
-                    if col_name in filename_values:
-                        output_columns.append(col_mapping.db_column)
+                    col_mapping = ColumnMapping(csv_column=csv_col, db_column=csv_col)
+                    sync_columns.append(col_mapping)
+                    output_columns.append(csv_col)
 
-            # Step 5: Process rows and write output CSV
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            rows_written = 0
+        # Add filename-extracted columns if configured
+        if filename_values:
+            for col_name, col_mapping in job.filename_to_column.columns.items():
+                if col_name in filename_values:
+                    output_columns.append(col_mapping.db_column)
 
-            # Reset reader to beginning
-            f.seek(0)
-            reader = csv.DictReader(f)
+        # If no columns to output, skip this CSV
+        if not output_columns:
+            return None
 
-            with open(output_path, "w", newline="", encoding="utf-8") as out_f:
-                writer = csv.DictWriter(out_f, fieldnames=output_columns)
-                writer.writeheader()
+        # Generate output filename
+        # Use variable names from raw result to make it informative
+        var_suffix = "_".join(raw_result.variable_names[:2])  # First 2 variables
+        if len(raw_result.variable_names) > 2:
+            var_suffix += f"_plus{len(raw_result.variable_names) - 2}"
 
-                for row in reader:
-                    # Apply column transformations
-                    output_row = apply_row_transformations(
-                        row, sync_columns, job.filename_to_column, filename_values
-                    )
+        output_filename = f"{cdf_file_path.stem}_{var_suffix}.csv"
+        output_path = output_dir / output_filename
 
-                    writer.writerow(output_row)
-                    rows_written += 1
+        # Process rows and write output CSV
+        output_dir.mkdir(parents=True, exist_ok=True)
+        rows_written = 0
+
+        # Reset reader to beginning
+        f.seek(0)
+        reader = csv.DictReader(f)
+
+        with open(output_path, "w", newline="", encoding="utf-8") as out_f:
+            writer = csv.DictWriter(out_f, fieldnames=output_columns)
+            writer.writeheader()
+
+            for row in reader:
+                # Apply column transformations
+                output_row = apply_row_transformations(
+                    row, sync_columns, job.filename_to_column, filename_values
+                )
+
+                # Skip row if completely empty (all transformations produced None/empty)
+                if not any(output_row.values()):
+                    continue
+
+                writer.writerow(output_row)
+                rows_written += 1
+
+        # Only return result if we wrote at least one row
+        if rows_written == 0:
+            output_path.unlink()  # Clean up empty file
+            return None
 
         file_size = output_path.stat().st_size
 
@@ -532,15 +618,5 @@ def extract_cdf_with_config(
             num_columns=len(output_columns),
             column_names=output_columns,
             file_size=file_size,
-            variable_names=raw_results[0].variable_names,
+            variable_names=raw_result.variable_names,
         )
-
-    finally:
-        # Clean up temporary files
-        try:
-            if raw_csv_path.exists():
-                raw_csv_path.unlink()
-            if temp_dir.exists():
-                temp_dir.rmdir()
-        except Exception:
-            pass  # Best effort cleanup

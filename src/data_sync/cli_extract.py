@@ -142,26 +142,20 @@ def extract(
 
         # Check for incompatible options when using config mode
         if config and job:
-            if variables:
-                console.print(
-                    "[yellow]Warning:[/yellow] --variables option is ignored when using --config and --job"
-                )
-            if not automerge:
-                console.print(
-                    "[yellow]Warning:[/yellow] --no-automerge option is ignored when using --config and --job"
-                )
             if append:
                 console.print(
-                    "[yellow]Warning:[/yellow] --append option is ignored when using --config and --job"
+                    "[yellow]Warning:[/yellow] --append option is not supported with --config and --job"
                 )
             if filename != "[SOURCE_FILE]-[VARIABLE_NAME].csv":
                 console.print(
-                    "[yellow]Warning:[/yellow] --filename option is ignored when using --config and --job"
+                    "[yellow]Warning:[/yellow] --filename option is not supported with --config and --job"
                 )
 
         # Mode 1: Config-based extraction (applies column mappings)
         if config and job:
-            return _extract_with_config(files, output_path, config, job, max_records)
+            return _extract_with_config(
+                files, output_path, config, job, max_records, automerge, variables
+            )
 
         # Mode 2: Raw extraction (current behavior)
         return _extract_raw(files, output_path, filename, automerge, append, variables, max_records)
@@ -177,6 +171,8 @@ def _extract_with_config(
     config_path: Path,
     job_name: str,
     max_records: int | None,
+    automerge: bool,
+    variables: tuple[str, ...],
 ) -> None:
     """Extract CDF files using config-based column mapping.
 
@@ -186,6 +182,8 @@ def _extract_with_config(
         config_path: Path to YAML config file
         job_name: Job name from config
         max_records: Maximum records to extract
+        automerge: Whether to merge variables with same record count
+        variables: Specific variable names to extract
     """
     # Load configuration
     sync_config = SyncConfig.from_yaml(config_path)
@@ -202,47 +200,68 @@ def _extract_with_config(
     output_dir = output_path if output_path else Path.cwd()
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Convert variables tuple to list (None if empty)
+    variable_list = list(variables) if variables else None
+
     console.print(f"[cyan]Extracting {len(files)} CDF file(s) with config-based mapping...[/cyan]")
     console.print(f"[dim]  Config: {config_path.name}[/dim]")
     console.print(f"[dim]  Job: {job_name}[/dim]")
     console.print(f"[dim]  Output directory: {output_dir}[/dim]")
+    if variable_list:
+        console.print(f"[dim]  Variables: {', '.join(variable_list)}[/dim]")
+    console.print(f"[dim]  Auto-merge: {automerge}[/dim]")
     if max_records is not None:
         console.print(f"[dim]  Max records: {max_records:,}[/dim]")
     console.print()
 
+    total_files_created = 0
     total_rows = 0
+
     for cdf_file in files:
         console.print(f"[bold]Processing:[/bold] {cdf_file.name}")
 
         try:
-            # Generate output filename based on CDF file name
-            output_file = output_dir / f"{cdf_file.stem}.csv"
-
-            result = extract_cdf_with_config(
+            results = extract_cdf_with_config(
                 cdf_file_path=cdf_file,
-                output_path=output_file,
+                output_dir=output_dir,
                 job=sync_job,
                 max_records=max_records,
+                automerge=automerge,
+                variable_names=variable_list,
             )
 
-            # Display results
+            if not results:
+                console.print(
+                    "[yellow]  No matching data found - column mappings don't match any extracted CSV[/yellow]\n"
+                )
+                continue
+
+            # Display results for each transformed CSV
             table = Table(show_header=True, box=None, padding=(0, 1))
             table.add_column("Output File", style="cyan")
+            table.add_column("Variables", style="yellow")
             table.add_column("Columns", justify="right", style="green")
             table.add_column("Rows", justify="right", style="magenta")
             table.add_column("Size", justify="right", style="dim")
 
-            table.add_row(
-                result.output_file.name,
-                str(result.num_columns),
-                f"{result.num_rows:,}",
-                format_file_size(result.file_size),
-            )
+            for result in results:
+                var_display = ", ".join(result.variable_names)
+                if len(var_display) > 40:
+                    var_display = var_display[:37] + "..."
+
+                table.add_row(
+                    result.output_file.name,
+                    var_display,
+                    str(result.num_columns),
+                    f"{result.num_rows:,}",
+                    format_file_size(result.file_size),
+                )
+
+                total_files_created += 1
+                total_rows += result.num_rows
 
             console.print(table)
             console.print()
-
-            total_rows += result.num_rows
 
         except ValueError as e:
             console.print(f"[red]Error processing {cdf_file.name}:[/red] {e}\n")
@@ -253,7 +272,7 @@ def _extract_with_config(
 
     # Final summary
     console.print("[bold green]✓ Extraction complete[/bold green]")
-    console.print(f"[dim]  Created {len(files)} CSV file(s)[/dim]")
+    console.print(f"[dim]  Created {total_files_created} CSV file(s)[/dim]")
     console.print(f"[dim]  Total rows extracted: {total_rows:,}[/dim]")
     console.print(f"[dim]  Output directory: {output_dir.absolute()}[/dim]")
 
