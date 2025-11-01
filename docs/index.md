@@ -1,16 +1,16 @@
-# Welcome to data-sync
+# Welcome to crump
 
 WARNING: This is a demo and all code is entirely untested. Use at your own risk! 
 
 Examines and syncs CSV and CDF science files into PostgreSQL or SQLite databases in batched files using easy to edit configuration files.
 
-[![CI](https://github.com/yourusername/data-sync/workflows/CI/badge.svg)](https://github.com/yourusername/data-sync/actions)
+[![CI](https://github.com/yourusername/crump/workflows/CI/badge.svg)](https://github.com/yourusername/crump/actions)
 [![Python Version](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
 ## Overview
 
-**data-sync** is a command-line tool and Python library for easy syncing CSV and CDF files to a PostgreSQL database. It provides a declarative, configuration-based approach to data synchronization with some additional features that make it very fast to get up and running syncing big complex data files into a db quickly.
+**crump** is a command-line tool and Python library for easy syncing CSV and CDF files to a PostgreSQL database. It provides a declarative, configuration-based approach to data synchronization with some additional features that make it very fast to get up and running syncing big complex data files into a db quickly.
 
 ## Key Features
 
@@ -30,18 +30,18 @@ Examines and syncs CSV and CDF science files into PostgreSQL or SQLite databases
 
 ```bash
 # Create a configuration file
-data-sync prepare users_2025-01-01_v01.csv config.yaml users_sync
+crump prepare users_2025-01-01_v01.csv crump_config.yaml users_sync
 
 # preview changes first
-data-sync sync users_2025-01-01_v01.csv config.yaml users_sync --dry-run
+crump sync users_2025-01-01_v01.csv crump_config.yaml users_sync --dry-run
 
 # Sync the file to database
 export DATABASE_URL="postgresql://localhost/mydb"
-data-sync sync users_2025-01-01_v01.csv config.yaml users_sync
+crump sync users_2025-01-01_v01.csv crump_config.yaml users_sync
 
 # Later that day the v2 of the file arrives
 # Sync the new file, old records from v1 are removed automatically, updates are applied to rows that match base on primary key
-data-sync sync users_2025-01-01_v02.csv config.yaml users_sync
+crump sync users_2025-01-01_v02.csv crump_config.yaml users_sync
 ```
 
 ## Use Cases
@@ -54,14 +54,14 @@ data-sync sync users_2025-01-01_v02.csv config.yaml users_sync
 
 ## Next Steps
 
-- [Installation Guide](installation.md) - Install data-sync
+- [Installation Guide](installation.md) - Install crump
 - [Quick Start](quick-start.md) - Get started in 5 minutes
 - [Configuration](configuration.md) - Learn about YAML configuration
 - [CLI Reference](cli-reference.md) - Command-line interface documentation
 - [Features](features.md) - Detailed feature documentation
-- [API Reference](api-reference.md) - Use data-sync as a Python library
+- [API Reference](api-reference.md) - Use crump as a Python library
 
 ## Support
 
-If you have any questions or run into issues, please [open an issue](https://github.com/yourusername/data-sync/issues) on GitHub.
+If you have any questions or run into issues, please [open an issue](https://github.com/yourusername/crump/issues) on GitHub.
 

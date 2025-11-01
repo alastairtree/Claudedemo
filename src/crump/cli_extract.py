@@ -8,8 +8,8 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from data_sync.cdf_extractor import extract_cdf_to_csv, extract_cdf_with_config
-from data_sync.config import SyncConfig
+from crump.cdf_extractor import extract_cdf_to_csv, extract_cdf_with_config
+from crump.config import SyncConfig
 
 console = Console()
 
@@ -108,41 +108,41 @@ def extract(
 
     Examples:
         # Extract all variables from a CDF file (raw dump)
-        data-sync extract data.cdf
+        crump extract data.cdf
 
         # Extract to a specific directory with custom filename
-        data-sync extract data.cdf -o output/ --filename "[SOURCE_FILE]_data.csv"
+        crump extract data.cdf -o output/ --filename "[SOURCE_FILE]_data.csv"
 
         # Extract specific variables without auto-merging
-        data-sync extract data.cdf -v epoch -v vectors --no-automerge
+        crump extract data.cdf -v epoch -v vectors --no-automerge
 
         # Extract and append to existing CSV files
-        data-sync extract data1.cdf data2.cdf --append
+        crump extract data1.cdf data2.cdf --append
 
         # Extract first 100 records from each variable
-        data-sync extract data.cdf --max-records 100
+        crump extract data.cdf --max-records 100
 
         # Extract multiple files with auto-merge enabled
-        data-sync extract *.cdf -o csv_output/
+        crump extract *.cdf -o csv_output/
 
         # Extract using config file (applies column mappings and transformations)
-        data-sync extract data.cdf -o output/ --config config.yaml --job my_job
+        crump extract data.cdf -o output/ --config crump_config.yaml --job my_job
 
         # Extract with auto-detected job (when config has only one job)
-        data-sync extract data.cdf -o output/ --config config.yaml
+        crump extract data.cdf -o output/ --config crump_config.yaml
 
         # Extract with config and limited records
-        data-sync extract data.cdf --config config.yaml --job my_job --max-records 100
+        crump extract data.cdf --config crump_config.yaml --job my_job --max-records 100
 
         # Extract with config and append to existing transformed CSV
-        data-sync extract data1.cdf --config config.yaml --append
-        data-sync extract data2.cdf --config config.yaml --append
+        crump extract data1.cdf --config crump_config.yaml --append
+        crump extract data2.cdf --config crump_config.yaml --append
 
         # Extract with config and custom filename template
-        data-sync extract data.cdf --config config.yaml --filename "processed_[SOURCE_FILE].csv"
+        crump extract data.cdf --config crump_config.yaml --filename "processed_[SOURCE_FILE].csv"
 
         # Extract with config, specific variables, and custom filename
-        data-sync extract data.cdf --config config.yaml -v epoch -v vectors --filename "vectors_[SOURCE_FILE].csv"
+        crump extract data.cdf --config crump_config.yaml -v epoch -v vectors --filename "vectors_[SOURCE_FILE].csv"
     """
     try:
         # Validate config/job parameters
@@ -193,8 +193,8 @@ def _extract_with_config(
 
     # Get the specified job or auto-detect if there's only one
     try:
-        result = sync_config.get_job_or_auto_detect(job_name)
-        if not result:
+        job_result = sync_config.get_job_or_auto_detect(job_name)
+        if not job_result:
             if job_name:
                 available_jobs = ", ".join(sync_config.jobs.keys())
                 console.print(f"[red]Error:[/red] Job '{job_name}' not found in config")
@@ -203,7 +203,7 @@ def _extract_with_config(
                 console.print("[red]Error:[/red] Config file contains no jobs")
             raise click.Abort()
 
-        sync_job, detected_job_name = result
+        sync_job, detected_job_name = job_result
 
         # Inform user if we auto-detected the job
         if job_name is None:

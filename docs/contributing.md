@@ -80,7 +80,7 @@ uv run pytest tests/test_my_feature.py -v
 ### 2. Implement the Feature
 
 ```python
-# src/data_sync/module.py
+# src/crump/module.py
 def my_feature(data):
     """Short description of what this does.
 
@@ -115,7 +115,7 @@ uv run ruff format .
 uv run ruff check --fix .
 
 # Type check
-uv run mypy src/data_sync
+uv run mypy src/crump
 ```
 
 ### 5. Update Documentation
@@ -180,7 +180,7 @@ Adds support for MySQL databases in addition to PostgreSQL.
 
 ## Why
 
-Many users have MySQL databases and want to use data-sync.
+Many users have MySQL databases and want to use crump.
 
 ## How
 
@@ -240,7 +240,7 @@ What actually happened.
 **Environment**
 - OS: [e.g., macOS 14, Ubuntu 22.04]
 - Python version: [e.g., 3.11.5]
-- data-sync version: [e.g., 0.1.0]
+- crump version: [e.g., 0.1.0]
 - Database: [e.g., PostgreSQL 16]
 
 **CSV file (if relevant)**
@@ -436,9 +436,9 @@ Sync a CSV file to PostgreSQL.
 
 \`\`\`python
 from pathlib import Path
-from data_sync import sync_csv_to_postgres, SyncConfig
+from crump import sync_csv_to_postgres, SyncConfig
 
-config = SyncConfig.from_yaml(Path("config.yaml"))
+config = SyncConfig.from_yaml(Path("crump_config.yaml"))
 job = config.get_job("my_job")
 
 rows = sync_csv_to_postgres(
@@ -470,7 +470,7 @@ rows = sync_csv_to_postgres(
 
 ### Getting Help
 
-- **Documentation**: Check the [docs](https://yourusername.github.io/data-sync)
+- **Documentation**: Check the [docs](https://yourusername.github.io/crump)
 - **Issues**: Search existing issues
 - **Discussions**: Use GitHub Discussions for questions
 
@@ -493,4 +493,4 @@ If you have questions about contributing, please:
 2. Search existing issues
 3. Open a new issue with the "question" label
 
-Thank you for contributing to data-sync! 🎉
+Thank you for contributing to crump! 🎉

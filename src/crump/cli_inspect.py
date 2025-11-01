@@ -351,13 +351,13 @@ def inspect(files: tuple[Path, ...], max_records: int) -> None:
 
     Examples:
         # Inspect a single CSV file
-        data-sync inspect data.csv
+        crump inspect data.csv
 
         # Inspect multiple files with custom record count
-        data-sync inspect file1.csv file2.cdf --max-records 20
+        crump inspect file1.csv file2.cdf --max-records 20
 
         # Inspect all CSV files in a directory
-        data-sync inspect data/*.csv
+        crump inspect data/*.csv
     """
     try:
         for file_path in files:

@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from data_sync.cdf_extractor import extract_cdf_to_csv, extract_cdf_with_config
-from data_sync.cdf_reader import read_cdf_variables
-from data_sync.config import ColumnMapping, SyncJob
+from crump.cdf_extractor import extract_cdf_to_csv, extract_cdf_with_config
+from crump.cdf_reader import read_cdf_variables
+from crump.config import ColumnMapping, SyncJob
 
 
 @pytest.fixture
@@ -346,7 +346,7 @@ def test_cdf_variable_column_names_with_labels(solo_cdf_file: Path) -> None:
     assert b_rtn_var is not None
 
     # Get column names (needs access to CDF file for metadata)
-    from data_sync.cdf_reader import get_column_names_for_variable
+    from crump.cdf_reader import get_column_names_for_variable
 
     col_names = get_column_names_for_variable(b_rtn_var, solo_cdf_file)
 

@@ -3,7 +3,7 @@
 import csv
 from pathlib import Path
 
-from data_sync.config import (
+from crump.config import (
     ColumnMapping,
     FilenameColumnMapping,
     FilenameToColumn,
@@ -11,7 +11,7 @@ from data_sync.config import (
     IndexColumn,
     SyncJob,
 )
-from data_sync.database import DatabaseConnection, sync_csv_to_postgres_dry_run
+from crump.database import DatabaseConnection, sync_csv_to_postgres_dry_run
 
 from .db_test_utils import table_exists
 

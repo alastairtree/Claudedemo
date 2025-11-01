@@ -1,11 +1,11 @@
 # CLI Reference
 
-Complete reference for the `data-sync` command-line interface.
+Complete reference for the `crump` command-line interface.
 
 ## Global Options
 
 ```bash
-data-sync [OPTIONS] COMMAND [ARGS]...
+crump [OPTIONS] COMMAND [ARGS]...
 ```
 
 ### Options
@@ -22,7 +22,7 @@ data-sync [OPTIONS] COMMAND [ARGS]...
 Sync a CSV or CDF file to the database using a configuration.
 
 ```bash
-data-sync sync FILE_PATH CONFIG JOB [OPTIONS]
+crump sync FILE_PATH CONFIG JOB [OPTIONS]
 ```
 
 #### Arguments
@@ -52,38 +52,38 @@ data-sync sync FILE_PATH CONFIG JOB [OPTIONS]
 **Basic CSV sync:**
 
 ```bash
-data-sync sync data.csv config.yaml my_job --db-url postgresql://localhost/mydb
+crump sync data.csv crump_config.yaml my_job --db-url postgresql://localhost/mydb
 ```
 
 **Sync CDF file (automatic extraction):**
 
 ```bash
-data-sync sync science_data.cdf config.yaml vectors --db-url postgresql://localhost/mydb
+crump sync science_data.cdf crump_config.yaml vectors --db-url postgresql://localhost/mydb
 ```
 
 **Sync CDF with limited records (for testing):**
 
 ```bash
-data-sync sync science_data.cdf config.yaml vectors --db-url postgresql://localhost/mydb --max-records 200
+crump sync science_data.cdf crump_config.yaml vectors --db-url postgresql://localhost/mydb --max-records 200
 ```
 
 **Using environment variable:**
 
 ```bash
 export DATABASE_URL=postgresql://localhost/mydb
-data-sync sync data.csv config.yaml my_job
+crump sync data.csv crump_config.yaml my_job
 ```
 
 **Dry-run mode:**
 
 ```bash
-data-sync sync data.csv config.yaml my_job --dry-run
+crump sync data.csv crump_config.yaml my_job --dry-run
 ```
 
 **Dry-run CDF with limited records:**
 
 ```bash
-data-sync sync data.cdf config.yaml my_job --dry-run --max-records 100
+crump sync data.cdf crump_config.yaml my_job --dry-run --max-records 100
 ```
 
 #### Output
@@ -131,7 +131,7 @@ Data Changes:
 Analyze a CSV or CDF file and generate or update a configuration file.
 
 ```bash
-data-sync prepare FILE_PATH... CONFIG [JOB] [OPTIONS]
+crump prepare FILE_PATH... CONFIG [JOB] [OPTIONS]
 ```
 
 #### Arguments
@@ -176,31 +176,31 @@ data-sync prepare FILE_PATH... CONFIG [JOB] [OPTIONS]
 **Auto-generate job name from CSV:**
 
 ```bash
-data-sync prepare users.csv --config config.yaml
+crump prepare users.csv --config crump_config.yaml
 ```
 
 **Prepare CDF file:**
 
 ```bash
-data-sync prepare science_data.cdf --config config.yaml
+crump prepare science_data.cdf --config crump_config.yaml
 ```
 
 **Specify job name:**
 
 ```bash
-data-sync prepare users.csv --config config.yaml --job my_custom_job
+crump prepare users.csv --config crump_config.yaml --job my_custom_job
 ```
 
 **Multiple files (auto-names each):**
 
 ```bash
-data-sync prepare file1.csv file2.csv --config config.yaml
+crump prepare file1.csv file2.csv --config crump_config.yaml
 ```
 
 **Update existing job:**
 
 ```bash
-data-sync prepare users.csv --config config.yaml --job users_sync --force
+crump prepare users.csv --config crump_config.yaml --job users_sync --force
 ```
 
 #### Output
@@ -232,7 +232,7 @@ Analyzing users_2024.csv...
 │ idx_created_at│ created_at │ DESC         │
 └──────────────┴─────────────┴──────────────┘
 
-✓ Created job 'users' in config.yaml
+✓ Created job 'users' in crump_config.yaml
   Target table: users
   ID column: user_id → id
   Filename pattern detected: users_[date].csv
@@ -252,7 +252,7 @@ Analyzing users_2024.csv...
 Inspect CSV or CDF files and display summary information.
 
 ```bash
-data-sync inspect FILES... [OPTIONS]
+crump inspect FILES... [OPTIONS]
 ```
 
 #### Arguments
@@ -272,26 +272,26 @@ data-sync inspect FILES... [OPTIONS]
 **Inspect a single CSV file:**
 
 ```bash
-data-sync inspect users.csv
+crump inspect users.csv
 ```
 
 **Inspect a CDF file:**
 
 ```bash
-data-sync inspect science_data.cdf
+crump inspect science_data.cdf
 ```
 
 **Inspect with custom record count:**
 
 ```bash
-data-sync inspect data.csv --max-records 20
-data-sync inspect data.cdf -n 5
+crump inspect data.csv --max-records 20
+crump inspect data.cdf -n 5
 ```
 
 **Inspect multiple files:**
 
 ```bash
-data-sync inspect file1.csv file2.cdf file3.csv
+crump inspect file1.csv file2.cdf file3.csv
 ```
 
 #### Output
@@ -312,7 +312,7 @@ Supports two modes:
 2. **Config-based extraction**: Uses job configuration to select, rename, and transform columns (same as `sync` command but outputs to CSV)
 
 ```bash
-data-sync extract FILES... [OPTIONS]
+crump extract FILES... [OPTIONS]
 ```
 
 #### Arguments
@@ -342,31 +342,31 @@ data-sync extract FILES... [OPTIONS]
 **Extract all variables:**
 
 ```bash
-data-sync extract science_data.cdf
+crump extract science_data.cdf
 ```
 
 **Extract to specific directory:**
 
 ```bash
-data-sync extract data.cdf --output-path ./output
+crump extract data.cdf --output-path ./output
 ```
 
 **Extract with limited records (for testing):**
 
 ```bash
-data-sync extract data.cdf --max-records 100
+crump extract data.cdf --max-records 100
 ```
 
 **Extract specific variables:**
 
 ```bash
-data-sync extract data.cdf --variables Epoch --variables B_field
+crump extract data.cdf --variables Epoch --variables B_field
 ```
 
 **Extract without automerge:**
 
 ```bash
-data-sync extract data.cdf --no-automerge
+crump extract data.cdf --no-automerge
 ```
 
 **Config-Based Extraction Mode:**
@@ -374,25 +374,25 @@ data-sync extract data.cdf --no-automerge
 **Extract with column mapping (same transformations as sync):**
 
 ```bash
-data-sync extract science_data.cdf --config config.yaml --job vectors_job
+crump extract science_data.cdf --config crump_config.yaml --job vectors_job
 ```
 
 **Extract to specific directory with config:**
 
 ```bash
-data-sync extract data.cdf -o output/ --config config.yaml --job my_job
+crump extract data.cdf -o output/ --config crump_config.yaml --job my_job
 ```
 
 **Config-based with limited records:**
 
 ```bash
-data-sync extract data.cdf --config config.yaml --job my_job --max-records 100
+crump extract data.cdf --config crump_config.yaml --job my_job --max-records 100
 ```
 
 **Multiple files with config:**
 
 ```bash
-data-sync extract *.cdf --config config.yaml --job my_job -o output/
+crump extract *.cdf --config crump_config.yaml --job my_job -o output/
 ```
 
 #### Output
@@ -468,16 +468,16 @@ sqlite:///path/to/database.db
 
 ```bash
 # 1. Analyze CSV and create config
-data-sync prepare data.csv config.yaml my_job
+crump prepare data.csv crump_config.yaml my_job
 
-# 2. Review generated config.yaml
-cat config.yaml
+# 2. Review generated crump_config.yaml
+cat crump_config.yaml
 
 # 3. Test with dry-run
-data-sync sync data.csv config.yaml my_job --dry-run
+crump sync data.csv crump_config.yaml my_job --dry-run
 
 # 4. Run actual sync
-data-sync sync data.csv config.yaml my_job
+crump sync data.csv crump_config.yaml my_job
 ```
 
 ### Daily Updates
@@ -487,7 +487,7 @@ data-sync sync data.csv config.yaml my_job
 export DATABASE_URL="postgresql://localhost/mydb"
 
 # Daily sync (idempotent)
-data-sync sync sales_$(date +%Y-%m-%d).csv config.yaml daily_sales
+crump sync sales_$(date +%Y-%m-%d).csv crump_config.yaml daily_sales
 ```
 
 ### Batch Processing
@@ -495,7 +495,7 @@ data-sync sync sales_$(date +%Y-%m-%d).csv config.yaml daily_sales
 ```bash
 # Process multiple files
 for file in data/*.csv; do
-  data-sync sync "$file" config.yaml my_job
+  crump sync "$file" crump_config.yaml my_job
 done
 ```
 
@@ -503,13 +503,13 @@ done
 
 ```bash
 # Update existing job with --force
-data-sync prepare new_data.csv config.yaml my_job --force
+crump prepare new_data.csv crump_config.yaml my_job --force
 
 # Review changes
-git diff config.yaml
+git diff crump_config.yaml
 
 # Test new config
-data-sync sync new_data.csv config.yaml my_job --dry-run
+crump sync new_data.csv crump_config.yaml my_job --dry-run
 ```
 
 ## Troubleshooting
@@ -544,4 +544,4 @@ Error: could not connect to server
 
 - [Configuration Guide](configuration.md) - Learn about YAML configuration
 - [Features](features.md) - Detailed feature documentation
-- [API Reference](api-reference.md) - Use data-sync programmatically
+- [API Reference](api-reference.md) - Use crump programmatically

@@ -233,7 +233,7 @@ toml = [
 ]
 
 [[package]]
-name = "data-sync"
+name = "crump"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

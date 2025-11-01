@@ -34,7 +34,7 @@ jobs:
         run: uv run ruff check .
 
       - name: Run mypy type checking
-        run: uv run mypy src/data_sync --install-types --non-interactive || true
+        run: uv run mypy src/crump --install-types --non-interactive || true
         continue-on-error: true
 
   test:

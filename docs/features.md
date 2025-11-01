@@ -1,6 +1,6 @@
 # Features
 
-Detailed documentation of all data-sync features.
+Detailed documentation of all crump features.
 
 ## Idempotent Operations
 
@@ -10,13 +10,13 @@ Running sync multiple times is safe - it uses PostgreSQL's `INSERT ... ON CONFLI
 
 ```bash
 # First run: inserts 3 rows
-data-sync sync users.csv config.yaml sync_users
+crump sync users.csv crump_config.yaml sync_users
 
 # Second run: updates existing rows, no duplicates
-data-sync sync users.csv config.yaml sync_users
+crump sync users.csv crump_config.yaml sync_users
 ```
 
-The same rows are updated, not duplicated. This makes data-sync safe for:
+The same rows are updated, not duplicated. This makes crump safe for:
 
 - Automated scripts
 - Cron jobs
@@ -194,7 +194,7 @@ filename_to_column:
 **Day 1**: Sync sales for 2024-01-15
 
 ```bash
-data-sync sync sales_2024-01-15.csv config.yaml daily_sales
+crump sync sales_2024-01-15.csv crump_config.yaml daily_sales
 ```
 
 **Database**:
@@ -206,7 +206,7 @@ SELECT * FROM sales WHERE sync_date = '2024-01-15';
 **Day 2**: Re-sync with corrections (only 95 rows now)
 
 ```bash
-data-sync sync sales_2024-01-15-corrected.csv config.yaml daily_sales
+crump sync sales_2024-01-15-corrected.csv crump_config.yaml daily_sales
 ```
 
 **Result**:
@@ -331,7 +331,7 @@ indexes:
 The `prepare` command suggests indexes automatically:
 
 ```bash
-data-sync prepare activity_log.csv config.yaml user_activity
+crump prepare activity_log.csv crump_config.yaml user_activity
 ```
 
 **Rules**:
@@ -363,7 +363,7 @@ Preview all changes without modifying the database.
 ### Usage
 
 ```bash
-data-sync sync data.csv config.yaml my_job --dry-run
+crump sync data.csv crump_config.yaml my_job --dry-run
 ```
 
 ### What it Shows
@@ -418,7 +418,7 @@ Primary target with full feature support:
 
 ```bash
 export DATABASE_URL="postgresql://localhost/mydb"
-data-sync sync data.csv config.yaml my_job
+crump sync data.csv crump_config.yaml my_job
 ```
 
 **Features**:
@@ -434,7 +434,7 @@ Alternative for testing and lightweight use:
 
 ```bash
 export DATABASE_URL="sqlite:///mydb.db"
-data-sync sync data.csv config.yaml my_job
+crump sync data.csv crump_config.yaml my_job
 ```
 
 **Limitations**:
@@ -490,7 +490,7 @@ Data-sync has built-in support for Common Data Format (CDF) science data files.
 Automatically extract CDF files to CSV and sync to database:
 
 ```bash
-data-sync sync science_data.cdf config.yaml my_job --db-url postgresql://localhost/mydb
+crump sync science_data.cdf crump_config.yaml my_job --db-url postgresql://localhost/mydb
 ```
 
 **How it works**:
@@ -509,13 +509,13 @@ Extracts all CDF variables to CSV files without configuration:
 
 ```bash
 # Extract all variables
-data-sync extract science_data.cdf
+crump extract science_data.cdf
 
 # Extract specific variables
-data-sync extract data.cdf -v epoch -v vectors
+crump extract data.cdf -v epoch -v vectors
 
 # Limit records for testing
-data-sync extract data.cdf --max-records 100
+crump extract data.cdf --max-records 100
 ```
 
 **Features**:
@@ -530,10 +530,10 @@ Apply the same column mappings and transformations as `sync` command, but output
 
 ```bash
 # Extract with column selection and mapping
-data-sync extract science_data.cdf --config config.yaml --job vectors_job
+crump extract science_data.cdf --config crump_config.yaml --job vectors_job
 
 # Multiple files with transformations
-data-sync extract *.cdf --config config.yaml --job my_job -o output/
+crump extract *.cdf --config crump_config.yaml --job my_job -o output/
 ```
 
 **Features**:
@@ -548,25 +548,25 @@ data-sync extract *.cdf --config config.yaml --job my_job -o output/
 **Preview data before syncing**:
 ```bash
 # Extract with config to see what will be synced
-data-sync extract data.cdf --config config.yaml --job my_job --max-records 10
+crump extract data.cdf --config crump_config.yaml --job my_job --max-records 10
 
 # Review the output CSV
 head output.csv
 
 # If satisfied, sync to database
-data-sync sync data.cdf config.yaml my_job
+crump sync data.cdf crump_config.yaml my_job
 ```
 
 **Generate processed CSV files**:
 ```bash
 # Apply transformations and save as CSV for other tools
-data-sync extract *.cdf --config config.yaml --job processed_data -o ./processed/
+crump extract *.cdf --config crump_config.yaml --job processed_data -o ./processed/
 ```
 
 **Test configurations**:
 ```bash
 # Test with limited records
-data-sync extract test_data.cdf --config config.yaml --job my_job --max-records 100
+crump extract test_data.cdf --config crump_config.yaml --job my_job --max-records 100
 
 # Verify output matches expectations
 python validate_output.py output.csv

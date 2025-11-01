@@ -6,9 +6,9 @@ from pathlib import Path
 import click
 from rich.console import Console
 
-from data_sync.cdf_extractor import extract_cdf_to_csv
-from data_sync.config import SyncConfig
-from data_sync.database import sync_csv_to_postgres, sync_csv_to_postgres_dry_run
+from crump.cdf_extractor import extract_cdf_to_csv
+from crump.config import SyncConfig
+from crump.database import sync_csv_to_postgres, sync_csv_to_postgres_dry_run
 
 console = Console()
 
@@ -108,26 +108,26 @@ def sync(
 
     Examples:
         # Sync with explicit job name
-        data-sync sync data.csv config.yaml --job my_job --db-url postgresql://localhost/mydb
+        crump sync data.csv crump_config.yaml --job my_job --db-url postgresql://localhost/mydb
 
         # Sync with auto-detected job (when config has only one job)
-        data-sync sync data.csv config.yaml --db-url postgresql://localhost/mydb
+        crump sync data.csv crump_config.yaml --db-url postgresql://localhost/mydb
 
         # Sync a CDF file (extracts to CSV automatically)
-        data-sync sync data.cdf config.yaml --job my_job --db-url postgresql://localhost/mydb
+        crump sync data.cdf crump_config.yaml --job my_job --db-url postgresql://localhost/mydb
 
         # Sync CDF with limited records (useful for testing)
-        data-sync sync data.cdf config.yaml --job my_job --db-url postgresql://localhost/mydb --max-records 200
+        crump sync data.cdf crump_config.yaml --job my_job --db-url postgresql://localhost/mydb --max-records 200
 
         # Using environment variable
         export DATABASE_URL=postgresql://localhost/mydb
-        data-sync sync data.csv config.yaml --job my_job
+        crump sync data.csv crump_config.yaml --job my_job
 
         # Dry-run mode to preview changes
-        data-sync sync data.csv config.yaml --job my_job --dry-run
+        crump sync data.csv crump_config.yaml --job my_job --dry-run
 
         # Dry-run with limited records from CDF and auto-detected job
-        data-sync sync data.cdf config.yaml --dry-run --max-records 100
+        crump sync data.cdf crump_config.yaml --dry-run --max-records 100
     """
     temp_dir: Path | None = None
     temp_csv_files: list[Path] = []
@@ -167,7 +167,7 @@ def sync(
             console.print(f"[cyan]Processing CDF file: {file_path.name}[/cyan]")
 
             # Create temporary directory for CSV extraction
-            temp_dir = Path(tempfile.mkdtemp(prefix="data_sync_cdf_"))
+            temp_dir = Path(tempfile.mkdtemp(prefix="crump_cdf_"))
 
             # Extract CDF to temporary CSV files
             temp_csv_files = _extract_cdf_and_find_csv(file_path, temp_dir, max_records)

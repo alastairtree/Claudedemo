@@ -10,8 +10,8 @@ from typing import Any
 
 import numpy as np
 
-from data_sync.cdf_reader import CDFVariable, get_column_names_for_variable, read_cdf_variables
-from data_sync.config import SyncJob, apply_row_transformations
+from crump.cdf_reader import CDFVariable, get_column_names_for_variable, read_cdf_variables
+from crump.config import SyncJob, apply_row_transformations
 
 
 @dataclass
@@ -567,7 +567,7 @@ def _transform_csv_with_config(
                     id_col.csv_column == csv_col for id_col in job.id_mapping if id_col.csv_column
                 ):
                     # Import ColumnMapping here to avoid circular import
-                    from data_sync.config import ColumnMapping
+                    from crump.config import ColumnMapping
 
                     col_mapping = ColumnMapping(csv_column=csv_col, db_column=csv_col)
                     sync_columns.append(col_mapping)
