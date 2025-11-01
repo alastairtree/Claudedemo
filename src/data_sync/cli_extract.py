@@ -130,6 +130,16 @@ def extract(
 
         # Extract with config and limited records
         data-sync extract data.cdf --config config.yaml --job my_job --max-records 100
+
+        # Extract with config and append to existing transformed CSV
+        data-sync extract data1.cdf --config config.yaml --job my_job --append
+        data-sync extract data2.cdf --config config.yaml --job my_job --append
+
+        # Extract with config and custom filename template
+        data-sync extract data.cdf --config config.yaml --job my_job --filename "processed_[SOURCE_FILE].csv"
+
+        # Extract with config, specific variables, and custom filename
+        data-sync extract data.cdf --config config.yaml --job my_job -v epoch -v vectors --filename "vectors_[SOURCE_FILE].csv"
     """
     try:
         # Validate config/job parameters
@@ -140,21 +150,10 @@ def extract(
             )
             raise click.Abort()
 
-        # Check for incompatible options when using config mode
-        if config and job:
-            if append:
-                console.print(
-                    "[yellow]Warning:[/yellow] --append option is not supported with --config and --job"
-                )
-            if filename != "[SOURCE_FILE]-[VARIABLE_NAME].csv":
-                console.print(
-                    "[yellow]Warning:[/yellow] --filename option is not supported with --config and --job"
-                )
-
         # Mode 1: Config-based extraction (applies column mappings)
         if config and job:
             return _extract_with_config(
-                files, output_path, config, job, max_records, automerge, variables
+                files, output_path, config, job, max_records, automerge, variables, append, filename
             )
 
         # Mode 2: Raw extraction (current behavior)
@@ -173,6 +172,8 @@ def _extract_with_config(
     max_records: int | None,
     automerge: bool,
     variables: tuple[str, ...],
+    append: bool,
+    filename: str,
 ) -> None:
     """Extract CDF files using config-based column mapping.
 
@@ -184,6 +185,8 @@ def _extract_with_config(
         max_records: Maximum records to extract
         automerge: Whether to merge variables with same record count
         variables: Specific variable names to extract
+        append: Whether to append to existing files
+        filename: Filename template for output files
     """
     # Load configuration
     sync_config = SyncConfig.from_yaml(config_path)
@@ -210,6 +213,9 @@ def _extract_with_config(
     if variable_list:
         console.print(f"[dim]  Variables: {', '.join(variable_list)}[/dim]")
     console.print(f"[dim]  Auto-merge: {automerge}[/dim]")
+    console.print(f"[dim]  Append mode: {append}[/dim]")
+    if filename != "[SOURCE_FILE]-[VARIABLE_NAME].csv":
+        console.print(f"[dim]  Filename template: {filename}[/dim]")
     if max_records is not None:
         console.print(f"[dim]  Max records: {max_records:,}[/dim]")
     console.print()
@@ -228,6 +234,8 @@ def _extract_with_config(
                 max_records=max_records,
                 automerge=automerge,
                 variable_names=variable_list,
+                append=append,
+                filename_template=filename,
             )
 
             if not results:

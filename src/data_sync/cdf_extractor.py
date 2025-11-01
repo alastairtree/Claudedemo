@@ -400,6 +400,8 @@ def extract_cdf_with_config(
     max_records: int | None = None,
     automerge: bool = True,
     variable_names: list[str] | None = None,
+    append: bool = False,
+    filename_template: str = "[SOURCE_FILE]_[VARIABLE_NAME].csv",
 ) -> list[ExtractionResult]:
     """Extract data from a CDF file to CSV using job configuration for column selection and mapping.
 
@@ -417,13 +419,16 @@ def extract_cdf_with_config(
         max_records: Maximum number of records to extract (None = all)
         automerge: Whether to merge variables with same record count during raw extraction
         variable_names: Specific variable names to extract (None = all)
+        append: Whether to append to existing CSV files instead of overwriting
+        filename_template: Template for output filenames (use [SOURCE_FILE] and [VARIABLE_NAME])
 
     Returns:
         List of ExtractionResult objects for successfully transformed CSVs (may be empty)
 
     Raises:
-        ValueError: If CDF extraction fails completely
+        ValueError: If CDF extraction fails completely or append header mismatch
         FileNotFoundError: If CDF file doesn't exist
+        FileExistsError: If output file exists and append is False
     """
     # Step 1: Extract CDF to temporary CSV files (raw dump)
     temp_dir = Path(tempfile.mkdtemp(prefix="data_sync_extract_"))
@@ -461,6 +466,8 @@ def extract_cdf_with_config(
                     job=job,
                     filename_values=filename_values,
                     raw_result=raw_result,
+                    append=append,
+                    filename_template=filename_template,
                 )
 
                 if result:
@@ -491,6 +498,8 @@ def _transform_csv_with_config(
     job: SyncJob,
     filename_values: dict[str, str] | None,
     raw_result: ExtractionResult,
+    append: bool = False,
+    filename_template: str = "[SOURCE_FILE]_[VARIABLE_NAME].csv",
 ) -> ExtractionResult | None:
     """Transform a raw CSV using job configuration.
 
@@ -501,12 +510,15 @@ def _transform_csv_with_config(
         job: Job configuration
         filename_values: Extracted filename values
         raw_result: Result from raw extraction
+        append: Whether to append to existing file
+        filename_template: Template for output filename
 
     Returns:
         ExtractionResult if transformation succeeds, None if CSV doesn't match mappings
 
     Raises:
-        ValueError: If required columns are missing from CSV
+        ValueError: If required columns are missing from CSV or append header mismatch
+        FileExistsError: If output file exists and append is False
     """
     with open(raw_csv_path, encoding="utf-8") as f:
         reader = csv.DictReader(f)
@@ -571,26 +583,60 @@ def _transform_csv_with_config(
         if not output_columns:
             return None
 
-        # Generate output filename
-        # Use variable names from raw result to make it informative
-        var_suffix = "_".join(raw_result.variable_names[:2])  # First 2 variables
-        if len(raw_result.variable_names) > 2:
-            var_suffix += f"_plus{len(raw_result.variable_names) - 2}"
+        # Generate output filename using template
+        # Replace [SOURCE_FILE] with CDF filename stem
+        # Replace [VARIABLE_NAME] with first variable name or joined names
+        output_filename = filename_template.replace("[SOURCE_FILE]", cdf_file_path.stem)
 
-        output_filename = f"{cdf_file_path.stem}_{var_suffix}.csv"
+        if "[VARIABLE_NAME]" in output_filename:
+            # Use variable names from raw result
+            if len(raw_result.variable_names) == 1:
+                var_name = raw_result.variable_names[0]
+            else:
+                # Multiple variables - use first 2 + count
+                var_name = "_".join(raw_result.variable_names[:2])
+                if len(raw_result.variable_names) > 2:
+                    var_name += f"_plus{len(raw_result.variable_names) - 2}"
+            output_filename = output_filename.replace("[VARIABLE_NAME]", var_name)
+
         output_path = output_dir / output_filename
 
         # Process rows and write output CSV
         output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Check if we're appending and validate headers
+        if append and output_path.exists():
+            # Validate that existing file has same columns
+            with open(output_path, encoding="utf-8") as existing_f:
+                existing_reader = csv.DictReader(existing_f)
+                existing_cols = existing_reader.fieldnames or []
+                if existing_cols != output_columns:
+                    raise ValueError(
+                        f"Cannot append to {output_path.name}: "
+                        f"existing CSV has different columns. "
+                        f"Expected: {output_columns}, Found: {existing_cols}"
+                    )
+        elif not append and output_path.exists():
+            # File exists and we're not appending - error
+            raise FileExistsError(
+                f"Output file already exists: {output_path}. "
+                f"Use --append to add to existing file or remove it first."
+            )
+
         rows_written = 0
 
         # Reset reader to beginning
         f.seek(0)
         reader = csv.DictReader(f)
 
-        with open(output_path, "w", newline="", encoding="utf-8") as out_f:
+        # Open in append or write mode
+        mode = "a" if (append and output_path.exists()) else "w"
+        with open(output_path, mode, newline="", encoding="utf-8") as out_f:
             writer = csv.DictWriter(out_f, fieldnames=output_columns)
-            writer.writeheader()
+
+            # Only write header if we're not appending or file is new
+            if mode == "w":
+                writer.writeheader()
 
             for row in reader:
                 # Apply column transformations
@@ -606,8 +652,8 @@ def _transform_csv_with_config(
                 rows_written += 1
 
         # Only return result if we wrote at least one row
-        if rows_written == 0:
-            output_path.unlink()  # Clean up empty file
+        if rows_written == 0 and mode == "w":
+            output_path.unlink()  # Clean up empty file (only if we created it)
             return None
 
         file_size = output_path.stat().st_size
