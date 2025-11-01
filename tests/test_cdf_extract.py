@@ -481,14 +481,16 @@ def test_extract_cdf_with_config_basic(imap_cdf_file: Path, tmp_path: Path) -> N
         ],
     )
 
-    output_file = tmp_path / "output.csv"
-
-    result = extract_cdf_with_config(
+    results = extract_cdf_with_config(
         cdf_file_path=imap_cdf_file,
-        output_path=output_file,
+        output_dir=tmp_path,
         job=job,
         max_records=None,
     )
+
+    # Should have at least one result
+    assert len(results) > 0
+    result = results[0]
 
     # Verify extraction result
     assert result.output_file.exists()
@@ -496,7 +498,7 @@ def test_extract_cdf_with_config_basic(imap_cdf_file: Path, tmp_path: Path) -> N
     assert result.num_columns == 4  # id + vector_x + vector_y + magnitude
 
     # Verify CSV content
-    with open(output_file, encoding="utf-8") as f:
+    with open(result.output_file, encoding="utf-8") as f:
         reader = csv.DictReader(f)
         headers = reader.fieldnames
         assert headers == ["id", "vector_x", "vector_y", "magnitude"]
@@ -517,17 +519,18 @@ def test_extract_cdf_with_config_column_renaming(imap_cdf_file: Path, tmp_path: 
         ],
     )
 
-    output_file = tmp_path / "output.csv"
-
-    result = extract_cdf_with_config(
+    results = extract_cdf_with_config(
         cdf_file_path=imap_cdf_file,
-        output_path=output_file,
+        output_dir=tmp_path,
         job=job,
         max_records=None,
     )
 
+    assert len(results) > 0
+    result = results[0]
+
     # Verify CSV has renamed columns
-    with open(output_file, encoding="utf-8") as f:
+    with open(result.output_file, encoding="utf-8") as f:
         reader = csv.DictReader(f)
         headers = reader.fieldnames
         assert "timestamp" in headers
@@ -549,27 +552,28 @@ def test_extract_cdf_with_config_max_records(solo_cdf_file: Path, tmp_path: Path
         ],
     )
 
-    output_file = tmp_path / "output.csv"
-
-    result = extract_cdf_with_config(
+    results = extract_cdf_with_config(
         cdf_file_path=solo_cdf_file,
-        output_path=output_file,
+        output_dir=tmp_path,
         job=job,
         max_records=max_records,
     )
+
+    assert len(results) > 0
+    result = results[0]
 
     # Should have exactly max_records rows
     assert result.num_rows == max_records
 
     # Verify file
-    with open(output_file, encoding="utf-8") as f:
+    with open(result.output_file, encoding="utf-8") as f:
         reader = csv.reader(f)
         rows = list(reader)
         assert len(rows) == max_records + 1  # 1 header + max_records data
 
 
 def test_extract_cdf_with_config_missing_column(imap_cdf_file: Path, tmp_path: Path) -> None:
-    """Test that extraction fails gracefully with missing columns."""
+    """Test that extraction returns empty list when column mappings don't match."""
     # Create a job that references a non-existent column
     job = SyncJob(
         name="test_job",
@@ -578,13 +582,13 @@ def test_extract_cdf_with_config_missing_column(imap_cdf_file: Path, tmp_path: P
         columns=[],
     )
 
-    output_file = tmp_path / "output.csv"
+    # Should return empty list when columns don't match
+    results = extract_cdf_with_config(
+        cdf_file_path=imap_cdf_file,
+        output_dir=tmp_path,
+        job=job,
+        max_records=None,
+    )
 
-    # Should raise an error about missing column
-    with pytest.raises(ValueError, match="not found in CDF data"):
-        extract_cdf_with_config(
-            cdf_file_path=imap_cdf_file,
-            output_path=output_file,
-            job=job,
-            max_records=None,
-        )
+    # No matching CSV should be produced
+    assert len(results) == 0
