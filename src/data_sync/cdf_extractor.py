@@ -473,7 +473,7 @@ def extract_cdf_with_config(
                 if result:
                     results.append(result)
 
-            except ValueError as e:
+            except ValueError:
                 # This CSV doesn't match the column mappings - skip it silently
                 # This is expected when a CDF has multiple variable groups
                 pass
@@ -574,10 +574,10 @@ def _transform_csv_with_config(
                     output_columns.append(csv_col)
 
         # Add filename-extracted columns if configured
-        if filename_values:
-            for col_name, col_mapping in job.filename_to_column.columns.items():
+        if filename_values and job.filename_to_column:
+            for col_name, filename_col_mapping in job.filename_to_column.columns.items():
                 if col_name in filename_values:
-                    output_columns.append(col_mapping.db_column)
+                    output_columns.append(filename_col_mapping.db_column)
 
         # If no columns to output, skip this CSV
         if not output_columns:

@@ -919,8 +919,8 @@ def apply_row_transformations(
 
     # Add filename values if configured
     if filename_to_column and filename_values:
-        for col_name, col_mapping in filename_to_column.columns.items():
+        for col_name, filename_col_mapping in filename_to_column.columns.items():
             if col_name in filename_values:
-                row_data[col_mapping.db_column] = filename_values[col_name]
+                row_data[filename_col_mapping.db_column] = filename_values[col_name]
 
     return row_data

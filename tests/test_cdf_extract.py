@@ -475,8 +475,8 @@ def test_extract_cdf_with_config_basic(imap_cdf_file: Path, tmp_path: Path) -> N
         target_table="test_table",
         id_mapping=[ColumnMapping(csv_column="epoch", db_column="id")],
         columns=[
-            ColumnMapping(csv_column="vectors_0", db_column="vector_x"),
-            ColumnMapping(csv_column="vectors_1", db_column="vector_y"),
+            ColumnMapping(csv_column="vectors_x", db_column="vector_x"),
+            ColumnMapping(csv_column="vectors_y", db_column="vector_y"),
             ColumnMapping(csv_column="vector_magnitude", db_column="magnitude"),
         ],
     )
