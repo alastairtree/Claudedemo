@@ -1,8 +1,6 @@
-# crump
+# CRUMP
 
-WARNING: This is a demo and all code is entirely untested. Use at your own risk!
-
-Examines and syncs CSV and CDF science files into PostgreSQL or SQLite databases in batched files using easy to edit configuration files.
+Read and dump CSV and CDF science files into PostgreSQL or SQLite databases in batched files using easy to edit configuration files. Avoid writing code to examine and transform data files onto database tables, just tweak the automaticly generated crump-config.yaml file and sync all your data files into you database.
 
 [![CI](https://github.com/alastairtree/clauddemo/workflows/CI/badge.svg)](https://github.com/alastairtree/clauddemo/actions)
 [![Python Version](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
