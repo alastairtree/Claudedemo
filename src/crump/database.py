@@ -1290,18 +1290,18 @@ class DatabaseConnection:
         return rows_synced
 
 
-def sync_csv_to_postgres(
+def sync_csv_to_db(
     csv_path: Path,
     job: CrumpJob,
     db_connection_string: str,
     filename_values: dict[str, str] | None = None,
 ) -> int:
-    """Sync a CSV file to PostgreSQL database.
+    """Sync a CSV file to database.
 
     Args:
         csv_path: Path to the CSV file
         job: CrumpJob configuration
-        db_connection_string: PostgreSQL connection string
+        db_connection_string: Database connection string (PostgreSQL or SQLite)
         filename_values: Optional dict of values extracted from filename
 
     Returns:
@@ -1311,7 +1311,7 @@ def sync_csv_to_postgres(
         return db.sync_csv_file(csv_path, job, filename_values)
 
 
-def sync_csv_to_postgres_dry_run(
+def sync_csv_to_db_dry_run(
     csv_path: Path,
     job: CrumpJob,
     db_connection_string: str,

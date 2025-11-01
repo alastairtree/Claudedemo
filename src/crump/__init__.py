@@ -1,7 +1,7 @@
-"""Sync CSV and CDF science files into PostgreSQL database.
+"""Sync CSV and CDF science files into database.
 
 This package provides both a CLI tool and programmatic API for syncing
-CSV and CDF files into a PostgreSQL database.
+CSV and CDF files into a database (PostgreSQL or SQLite).
 
 CLI Usage:
     crump sync <file> <config> <job> --db-url <url>
@@ -33,8 +33,8 @@ from crump.config import (
 )
 from crump.database import (
     DryRunSummary,
-    sync_csv_to_postgres,
-    sync_csv_to_postgres_dry_run,
+    sync_csv_to_db,
+    sync_csv_to_db_dry_run,
 )
 from crump.type_detection import analyze_csv_types_and_nullable, suggest_id_column
 
@@ -47,8 +47,8 @@ __all__ = [
     "Index",
     "IndexColumn",
     # Database operations
-    "sync_csv_to_postgres",
-    "sync_csv_to_postgres_dry_run",
+    "sync_csv_to_db",
+    "sync_csv_to_db_dry_run",
     "DryRunSummary",
     # Type detection
     "analyze_csv_types_and_nullable",
