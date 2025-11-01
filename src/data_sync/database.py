@@ -11,7 +11,7 @@ from typing import Any, Protocol
 import psycopg
 from psycopg import sql
 
-from data_sync.config import SyncJob
+from data_sync.config import SyncJob, apply_row_transformations
 
 logger = logging.getLogger(__name__)
 
@@ -1037,22 +1037,10 @@ class DatabaseConnection:
                 if not self._should_include_row(row_index, total_rows, job.sample_percentage):
                     continue
 
-                row_data = {}
-                for col_mapping in sync_columns:
-                    # Check if this column uses a custom function/expression
-                    if col_mapping.expression or col_mapping.function:
-                        # Apply custom function/expression
-                        row_data[col_mapping.db_column] = col_mapping.apply_custom_function(row)
-                    elif col_mapping.csv_column in row:
-                        csv_value = row[col_mapping.csv_column]
-                        # Apply lookup transformation if configured
-                        row_data[col_mapping.db_column] = col_mapping.apply_lookup(csv_value)
-
-                # Add filename values if configured
-                if job.filename_to_column and filename_values:
-                    for col_name, col_mapping in job.filename_to_column.columns.items():
-                        if col_name in filename_values:
-                            row_data[col_mapping.db_column] = filename_values[col_name]
+                # Apply column transformations
+                row_data = apply_row_transformations(
+                    row, sync_columns, job.filename_to_column, filename_values
+                )
 
                 self.upsert_row(job.target_table, primary_keys, row_data)
 
@@ -1063,22 +1051,10 @@ class DatabaseConnection:
         else:
             # No sampling - process rows normally without loading into memory
             for row in reader:
-                row_data = {}
-                for col_mapping in sync_columns:
-                    # Check if this column uses a custom function/expression
-                    if col_mapping.expression or col_mapping.function:
-                        # Apply custom function/expression
-                        row_data[col_mapping.db_column] = col_mapping.apply_custom_function(row)
-                    elif col_mapping.csv_column in row:
-                        csv_value = row[col_mapping.csv_column]
-                        # Apply lookup transformation if configured
-                        row_data[col_mapping.db_column] = col_mapping.apply_lookup(csv_value)
-
-                # Add filename values if configured
-                if job.filename_to_column and filename_values:
-                    for col_name, col_mapping in job.filename_to_column.columns.items():
-                        if col_name in filename_values:
-                            row_data[col_mapping.db_column] = filename_values[col_name]
+                # Apply column transformations
+                row_data = apply_row_transformations(
+                    row, sync_columns, job.filename_to_column, filename_values
+                )
 
                 self.upsert_row(job.target_table, primary_keys, row_data)
 
@@ -1127,22 +1103,10 @@ class DatabaseConnection:
                     if not self._should_include_row(row_index, total_rows, job.sample_percentage):
                         continue
 
-                    row_data = {}
-                    for col_mapping in sync_columns:
-                        # Check if this column uses a custom function/expression
-                        if col_mapping.expression or col_mapping.function:
-                            # Apply custom function/expression
-                            row_data[col_mapping.db_column] = col_mapping.apply_custom_function(row)
-                        elif col_mapping.csv_column in row:
-                            csv_value = row[col_mapping.csv_column]
-                            # Apply lookup transformation if configured
-                            row_data[col_mapping.db_column] = col_mapping.apply_lookup(csv_value)
-
-                    # Add filename values if configured
-                    if job.filename_to_column and filename_values:
-                        for col_name, col_mapping in job.filename_to_column.columns.items():
-                            if col_name in filename_values:
-                                row_data[col_mapping.db_column] = filename_values[col_name]
+                    # Apply column transformations
+                    row_data = apply_row_transformations(
+                        row, sync_columns, job.filename_to_column, filename_values
+                    )
 
                     # Track synced IDs as tuples (for compound key support)
                     id_values = tuple(row_data[id_col.db_column] for id_col in job.id_mapping)
@@ -1151,22 +1115,10 @@ class DatabaseConnection:
             else:
                 # No sampling - process rows normally
                 for row in reader:
-                    row_data = {}
-                    for col_mapping in sync_columns:
-                        # Check if this column uses a custom function/expression
-                        if col_mapping.expression or col_mapping.function:
-                            # Apply custom function/expression
-                            row_data[col_mapping.db_column] = col_mapping.apply_custom_function(row)
-                        elif col_mapping.csv_column in row:
-                            csv_value = row[col_mapping.csv_column]
-                            # Apply lookup transformation if configured
-                            row_data[col_mapping.db_column] = col_mapping.apply_lookup(csv_value)
-
-                    # Add filename values if configured
-                    if job.filename_to_column and filename_values:
-                        for col_name, col_mapping in job.filename_to_column.columns.items():
-                            if col_name in filename_values:
-                                row_data[col_mapping.db_column] = filename_values[col_name]
+                    # Apply column transformations
+                    row_data = apply_row_transformations(
+                        row, sync_columns, job.filename_to_column, filename_values
+                    )
 
                     # Track synced IDs as tuples (for compound key support)
                     id_values = tuple(row_data[id_col.db_column] for id_col in job.id_mapping)

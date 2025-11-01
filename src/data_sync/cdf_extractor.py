@@ -11,7 +11,7 @@ from typing import Any
 import numpy as np
 
 from data_sync.cdf_reader import CDFVariable, get_column_names_for_variable, read_cdf_variables
-from data_sync.config import SyncJob
+from data_sync.config import SyncJob, apply_row_transformations
 
 
 @dataclass
@@ -516,24 +516,10 @@ def extract_cdf_with_config(
                 writer.writeheader()
 
                 for row in reader:
-                    output_row = {}
-
-                    # Process each column mapping
-                    for col_mapping in sync_columns:
-                        # Check if this column uses a custom function/expression
-                        if col_mapping.expression or col_mapping.function:
-                            # Apply custom function/expression
-                            output_row[col_mapping.db_column] = col_mapping.apply_custom_function(row)
-                        elif col_mapping.csv_column and col_mapping.csv_column in row:
-                            csv_value = row[col_mapping.csv_column]
-                            # Apply lookup transformation if configured
-                            output_row[col_mapping.db_column] = col_mapping.apply_lookup(csv_value)
-
-                    # Add filename values if configured
-                    if filename_values:
-                        for col_name, col_mapping in job.filename_to_column.columns.items():
-                            if col_name in filename_values:
-                                output_row[col_mapping.db_column] = filename_values[col_name]
+                    # Apply column transformations
+                    output_row = apply_row_transformations(
+                        row, sync_columns, job.filename_to_column, filename_values
+                    )
 
                     writer.writerow(output_row)
                     rows_written += 1

@@ -307,6 +307,10 @@ Displays:
 
 Extract data from CDF files to CSV format.
 
+Supports two modes:
+1. **Raw extraction** (default): Extracts all CDF variables to CSV with automatic column naming
+2. **Config-based extraction**: Uses job configuration to select, rename, and transform columns (same as `sync` command but outputs to CSV)
+
 ```bash
 data-sync extract FILES... [OPTIONS]
 ```
@@ -322,14 +326,18 @@ data-sync extract FILES... [OPTIONS]
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `--output-path`, `-o` | Path | Current directory | Output directory for CSV files |
-| `--filename` | String | `[SOURCE_FILE]-[VARIABLE_NAME].csv` | Template for output filenames |
-| `--automerge` | Flag | True | Merge variables with same record count |
-| `--no-automerge` | Flag | - | Create separate CSV for each variable |
-| `--append` | Flag | False | Append to existing CSV files |
-| `--variables`, `-v` | String(s) | All | Specific variable names to extract |
+| `--filename` | String | `[SOURCE_FILE]-[VARIABLE_NAME].csv` | Template for output filenames (raw mode only) |
+| `--automerge` | Flag | True | Merge variables with same record count (raw mode only) |
+| `--no-automerge` | Flag | - | Create separate CSV for each variable (raw mode only) |
+| `--append` | Flag | False | Append to existing CSV files (raw mode only) |
+| `--variables`, `-v` | String(s) | All | Specific variable names to extract (raw mode only) |
 | `--max-records` | Integer | None (all) | Maximum number of records to extract per variable |
+| `--config`, `-c` | Path | None | YAML configuration file (requires `--job`) |
+| `--job`, `-j` | String | None | Job name from config (requires `--config`) |
 
 #### Examples
+
+**Raw Extraction Mode:**
 
 **Extract all variables:**
 
@@ -361,13 +369,45 @@ data-sync extract data.cdf --variables Epoch --variables B_field
 data-sync extract data.cdf --no-automerge
 ```
 
+**Config-Based Extraction Mode:**
+
+**Extract with column mapping (same transformations as sync):**
+
+```bash
+data-sync extract science_data.cdf --config config.yaml --job vectors_job
+```
+
+**Extract to specific directory with config:**
+
+```bash
+data-sync extract data.cdf -o output/ --config config.yaml --job my_job
+```
+
+**Config-based with limited records:**
+
+```bash
+data-sync extract data.cdf --config config.yaml --job my_job --max-records 100
+```
+
+**Multiple files with config:**
+
+```bash
+data-sync extract *.cdf --config config.yaml --job my_job -o output/
+```
+
 #### Output
 
-Creates CSV files with:
+**Raw mode** creates CSV files with:
 - One CSV per group of variables (with automerge)
 - Or one CSV per variable (without automerge)
 - Column names derived from variable labels or names
 - Array variables expanded into multiple columns
+
+**Config mode** creates CSV files with:
+- Columns selected and renamed according to job configuration
+- Same transformations (lookup, expression, function) as `sync` command
+- Metadata from filename extraction (if configured)
+- One CSV file per CDF file (named after source file)
 
 ---
 
