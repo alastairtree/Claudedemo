@@ -8,7 +8,7 @@ from rich.console import Console
 
 from crump.cdf_extractor import extract_cdf_to_csv
 from crump.config import CrumpConfig
-from crump.database import sync_csv_to_postgres, sync_csv_to_postgres_dry_run
+from crump.database import sync_csv_to_db, sync_csv_to_db_dry_run
 
 console = Console()
 
@@ -222,9 +222,7 @@ def sync(
             console.print(
                 f"[cyan]DRY RUN: Simulating sync of {csv_file_to_sync.name} using job '{job}'...[/cyan]"
             )
-            summary = sync_csv_to_postgres_dry_run(
-                csv_file_to_sync, crump_job, db_url, filename_values
-            )
+            summary = sync_csv_to_db_dry_run(csv_file_to_sync, crump_job, db_url, filename_values)
 
             # Display dry-run summary
             console.print("\n[bold yellow]Dry-run Summary[/bold yellow]")
@@ -278,7 +276,7 @@ def sync(
         else:
             # Sync the file
             console.print(f"[cyan]Syncing {csv_file_to_sync.name} using job '{job}'...[/cyan]")
-            rows_synced = sync_csv_to_postgres(csv_file_to_sync, crump_job, db_url, filename_values)
+            rows_synced = sync_csv_to_db(csv_file_to_sync, crump_job, db_url, filename_values)
 
             console.print(f"[green]✓ Successfully synced {rows_synced} rows[/green]")
             console.print(f"[dim]  Table: {crump_job.target_table}[/dim]")

@@ -13,10 +13,10 @@ from crump.cli_sync import sync
 @click.version_option(version=__version__)
 @click.pass_context
 def main(ctx: click.Context) -> None:
-    """Sync CSV and CDF science files into PostgreSQL database.
+    """Sync CSV and CDF science files into database.
 
     This application provides tools for syncing scientific data files
-    into a PostgreSQL database for analysis and storage.
+    into a database (PostgreSQL or SQLite) for analysis and storage.
     """
     ctx.ensure_object(dict)
 

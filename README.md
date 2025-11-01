@@ -10,7 +10,7 @@ Examines and syncs CSV and CDF science files into PostgreSQL or SQLite databases
 
 ## Overview
 
-**crump** is a command-line tool and Python library for easy syncing CSV and CDF (Common Data Format) files to a PostgreSQL database. It provides a declarative, configuration-based approach to data synchronization with some additional features that make it very fast to get up and running syncing big complex data files into a db quickly.
+**crump** is a command-line tool and Python library for easy syncing CSV and CDF (Common Data Format) files to a database (PostgreSQL or SQLite). It provides a declarative, configuration-based approach to data synchronization with some additional features that make it very fast to get up and running syncing big complex data files into a db quickly.
 
 ## Quick Start
 
@@ -122,7 +122,7 @@ pip install crump
 uv pip install crump
 ```
 
-Requires Python 3.11+ and PostgreSQL (or SQLite for testing).
+Requires Python 3.11+ and PostgreSQL or SQLite.
 
 ## CLI Usage
 
@@ -142,17 +142,17 @@ crump sync data.csv crump_config.yaml my_job --dry-run
 
 ```python
 from pathlib import Path
-from crump import sync_csv_to_postgres, CrumpConfig
+from crump import sync_csv_to_db, CrumpConfig
 
 # Load configuration
 config = CrumpConfig.from_yaml(Path("crump_config.yaml"))
 job = config.get_job("my_job")
 
-# Sync CSV to database
-rows_synced = sync_csv_to_postgres(
-    file_path=Path("data.csv"),
-    crump_job=job,
-    db_url="postgresql://localhost/mydb"
+# Sync CSV to database (PostgreSQL or SQLite)
+rows_synced = sync_csv_to_db(
+    csv_path=Path("data.csv"),
+    job=job,
+    db_connection_string="postgresql://localhost/mydb"
 )
 print(f"Synced {rows_synced} rows")
 ```
