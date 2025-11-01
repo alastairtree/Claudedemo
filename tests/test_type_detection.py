@@ -3,7 +3,7 @@
 import csv
 from pathlib import Path
 
-from data_sync.type_detection import (
+from crump.type_detection import (
     analyze_csv_types,
     detect_column_type,
     suggest_id_column,

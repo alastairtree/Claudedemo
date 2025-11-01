@@ -2,10 +2,10 @@
 
 This guide will get you syncing CSV files to PostgreSQL in 5 minutes.
 
-## Step 1: Install data-sync
+## Step 1: Install crump
 
 ```bash
-pip install data-sync
+pip install crump
 ```
 
 ## Step 2: Prepare Your Data
@@ -26,7 +26,7 @@ You can either create a configuration file manually or use the `prepare` command
 === "Automatic (Recommended)"
 
     ```bash
-    data-sync prepare users.csv config.yaml users_sync
+    crump prepare users.csv crump_config.yaml users_sync
     ```
 
     This will:
@@ -38,7 +38,7 @@ You can either create a configuration file manually or use the `prepare` command
 
 === "Manual"
 
-    Create `config.yaml`:
+    Create `crump_config.yaml`:
 
     ```yaml
     jobs:
@@ -62,7 +62,7 @@ export DATABASE_URL="postgresql://user:password@localhost:5432/mydb"
 Before syncing, you can preview what changes will be made:
 
 ```bash
-data-sync sync users.csv config.yaml users_sync --dry-run
+crump sync users.csv crump_config.yaml users_sync --dry-run
 ```
 
 This shows:
@@ -75,7 +75,7 @@ This shows:
 ## Step 6: Sync Your Data
 
 ```bash
-data-sync sync users.csv config.yaml users_sync
+crump sync users.csv crump_config.yaml users_sync
 ```
 
 You should see output like:
@@ -105,7 +105,7 @@ SELECT * FROM users;
 
 ## What Just Happened?
 
-1. **Table Creation**: data-sync created the `users` table automatically
+1. **Table Creation**: crump created the `users` table automatically
 2. **Column Mapping**: CSV columns were renamed according to your config
 3. **Type Detection**: Column types were inferred from your CSV data
 4. **Primary Key**: The `user_id` column was mapped to `id` as the primary key
@@ -120,7 +120,7 @@ The sync is **idempotent** - you can run it multiple times safely:
 # Change Alice's email to alice.new@example.com
 
 # Run sync again
-data-sync sync users.csv config.yaml users_sync
+crump sync users.csv crump_config.yaml users_sync
 ```
 
 The existing rows are updated, no duplicates are created.
@@ -136,7 +136,7 @@ Now that you have the basics working, learn about more advanced features:
   - Compound primary keys
   - Database indexes
 - [CLI Reference](cli-reference.md) - All command-line options
-- [API Reference](api-reference.md) - Use data-sync in your Python code
+- [API Reference](api-reference.md) - Use crump in your Python code
 
 ## Common Use Cases
 

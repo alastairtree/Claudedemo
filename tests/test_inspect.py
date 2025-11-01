@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from data_sync.cli import main
+from crump.cli import main
 
 
 class TestInspectCommand:

@@ -1,6 +1,6 @@
 # Development Guide
 
-Guide for contributing to data-sync development.
+Guide for contributing to crump development.
 
 ## Setup Development Environment
 
@@ -14,8 +14,8 @@ Guide for contributing to data-sync development.
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/data-sync.git
-cd data-sync
+git clone https://github.com/yourusername/crump.git
+cd crump
 
 # Install with uv (recommended)
 uv sync --all-extras
@@ -43,7 +43,7 @@ The devcontainer includes:
 ## Project Structure
 
 ```
-data-sync/
+crump/
 ├── .github/
 │   └── workflows/
 │       └── ci.yml                    # GitHub Actions CI/CD
@@ -54,7 +54,7 @@ data-sync/
 │   ├── installation.md
 │   └── ...
 ├── src/
-│   └── data_sync/
+│   └── crump/
 │       ├── __init__.py               # Package exports
 │       ├── cli.py                    # Main CLI entry point
 │       ├── cli_COMMANDNAME.py        # CLI commands 

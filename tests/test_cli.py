@@ -4,8 +4,8 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from data_sync import __version__
-from data_sync.cli import main
+from crump import __version__
+from crump.cli import main
 
 
 class TestCLIBasics:
@@ -46,7 +46,7 @@ class TestSyncCommand:
         """Test sync with nonexistent CSV file fails."""
         from tests.test_helpers import create_config_file
 
-        config_file = tmp_path / "config.yaml"
+        config_file = tmp_path / "crump_config.yaml"
         create_config_file(config_file, "test", "test", {"id": "id"})
 
         nonexistent = tmp_path / "doesnotexist.csv"
@@ -93,7 +93,7 @@ class TestSyncCommand:
         csv_file = tmp_path / "test.csv"
         create_csv_file(csv_file, ["id", "value"], [{"id": "1", "value": "test"}])
 
-        config_file = tmp_path / "config.yaml"
+        config_file = tmp_path / "crump_config.yaml"
         create_config_file(config_file, "real_job", "test", {"id": "id"})
 
         result = cli_runner.invoke(
@@ -119,7 +119,7 @@ class TestSyncCommand:
         csv_file = tmp_path / "test.csv"
         csv_file.touch()
 
-        config_file = tmp_path / "config.yaml"
+        config_file = tmp_path / "crump_config.yaml"
         create_config_file(config_file, "test", "test", {"id": "id"})
 
         result = cli_runner.invoke(main, ["sync", str(csv_file), str(config_file), "test"])
@@ -132,7 +132,7 @@ class TestSuggestIndexes:
 
     def test_suggest_indexes_for_date_columns(self) -> None:
         """Test that date columns get descending indexes."""
-        from data_sync.cli_prepare import suggest_indexes
+        from crump.cli_prepare import suggest_indexes
 
         columns = {
             "id": ("integer", False),
@@ -158,7 +158,7 @@ class TestSuggestIndexes:
 
     def test_suggest_indexes_for_id_key_columns(self) -> None:
         """Test that columns ending in _id or _key get ascending indexes."""
-        from data_sync.cli_prepare import suggest_indexes
+        from crump.cli_prepare import suggest_indexes
 
         columns = {
             "id": ("integer", False),
@@ -184,7 +184,7 @@ class TestSuggestIndexes:
 
     def test_suggest_indexes_excludes_id_column(self) -> None:
         """Test that the ID column doesn't get an index."""
-        from data_sync.cli_prepare import suggest_indexes
+        from crump.cli_prepare import suggest_indexes
 
         columns = {
             "user_id": ("integer", False),
@@ -199,7 +199,7 @@ class TestSuggestIndexes:
 
     def test_suggest_indexes_mixed_columns(self) -> None:
         """Test index suggestion with mixed column types."""
-        from data_sync.cli_prepare import suggest_indexes
+        from crump.cli_prepare import suggest_indexes
 
         columns = {
             "order_id": ("integer", False),
@@ -231,7 +231,7 @@ class TestSuggestIndexes:
 
     def test_suggest_indexes_no_indexable_columns(self) -> None:
         """Test with no columns that should be indexed."""
-        from data_sync.cli_prepare import suggest_indexes
+        from crump.cli_prepare import suggest_indexes
 
         columns = {
             "id": ("integer", False),
@@ -270,7 +270,7 @@ class TestDryRunCommand:
         )
 
         # Create a config file
-        config_file = tmp_path / "config.yaml"
+        config_file = tmp_path / "crump_config.yaml"
         create_config_file(config_file, "test_job", "test_table", {"id": "id"})
 
         # Create an SQLite database URL
@@ -315,7 +315,7 @@ class TestDryRunCommand:
         create_csv_file(csv_file, ["id", "name"], [{"id": "1", "name": "Alice"}])
 
         # Create a config file
-        config_file = tmp_path / "config.yaml"
+        config_file = tmp_path / "crump_config.yaml"
         create_config_file(config_file, "test_job", "test_table", {"id": "id"})
 
         # Create an SQLite database URL

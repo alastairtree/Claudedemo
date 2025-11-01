@@ -1,5 +1,5 @@
 #!/bin/bash
-# Generate and serve data-sync documentation locally
+# Generate and serve crump documentation locally
 #
 # Usage:
 #   ./generate-docs.sh          # Serve documentation with live reload
@@ -37,7 +37,7 @@ check_mkdocs() {
 
 # Show help message
 show_help() {
-    echo "Generate and serve data-sync documentation"
+    echo "Generate and serve crump documentation"
     echo ""
     echo "Usage:"
     echo "  ./generate-docs.sh          Serve documentation with live reload (default)"

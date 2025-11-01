@@ -1,4 +1,4 @@
-# data-sync
+# crump
 
 WARNING: This is a demo and all code is entirely untested. Use at your own risk!
 
@@ -10,7 +10,7 @@ Examines and syncs CSV and CDF science files into PostgreSQL or SQLite databases
 
 ## Overview
 
-**data-sync** is a command-line tool and Python library for easy syncing CSV and CDF (Common Data Format) files to a PostgreSQL database. It provides a declarative, configuration-based approach to data synchronization with some additional features that make it very fast to get up and running syncing big complex data files into a db quickly.
+**crump** is a command-line tool and Python library for easy syncing CSV and CDF (Common Data Format) files to a PostgreSQL database. It provides a declarative, configuration-based approach to data synchronization with some additional features that make it very fast to get up and running syncing big complex data files into a db quickly.
 
 ## Quick Start
 
@@ -18,36 +18,36 @@ Examines and syncs CSV and CDF science files into PostgreSQL or SQLite databases
 
 ```bash
 # Install
-uv install data-sync
+uv install crump
 
 # or pip
-pip install data-sync
+pip install crump
 
 # Create configuration by analyzing your CSV
-data-sync prepare users.csv --config config.yaml
+crump prepare users.csv --config crump_config.yaml
 
 # Preview changes (dry-run)
 export DATABASE_URL="postgresql://localhost/mydb"
-data-sync sync users.csv config.yaml users_sync --dry-run
+crump sync users.csv crump_config.yaml users_sync --dry-run
 
 # Sync to database
-data-sync sync users.csv config.yaml users_sync
+crump sync users.csv crump_config.yaml users_sync
 ```
 
 ### CDF (Science Data) Files
 
 ```bash
 # Inspect CDF file contents
-data-sync inspect data.cdf --max-records 10
+crump inspect data.cdf --max-records 10
 
 # Extract CDF to CSV (optional, for preview)
-data-sync extract data.cdf --output-path ./output --max-records 100
+crump extract data.cdf --output-path ./output --max-records 100
 
 # Create configuration from CDF file
-data-sync prepare data.cdf --config config.yaml
+crump prepare data.cdf --config crump_config.yaml
 
 # Sync CDF directly to database (automatic extraction)
-data-sync sync data.cdf config.yaml vectors --db-url postgresql://localhost/mydb
+crump sync data.cdf crump_config.yaml vectors --db-url postgresql://localhost/mydb
 ```
 
 ## Key Features
@@ -93,15 +93,15 @@ This configuration:
 
 ## Documentation
 
-📚 **[Read the full documentation](https://yourusername.github.io/data-sync)**
+📚 **[Read the full documentation](https://yourusername.github.io/crump)**
 
-- [Installation Guide](https://yourusername.github.io/data-sync/installation/) - Install data-sync
-- [Quick Start](https://yourusername.github.io/data-sync/quick-start/) - Get started in 5 minutes
-- [Configuration](https://yourusername.github.io/data-sync/configuration/) - YAML configuration reference
-- [CLI Reference](https://yourusername.github.io/data-sync/cli-reference/) - Command-line documentation
-- [Features](https://yourusername.github.io/data-sync/features/) - Detailed feature documentation
-- [API Reference](https://yourusername.github.io/data-sync/api-reference/) - Python API documentation
-- [Development](https://yourusername.github.io/data-sync/development/) - Contributing guide
+- [Installation Guide](https://yourusername.github.io/crump/installation/) - Install crump
+- [Quick Start](https://yourusername.github.io/crump/quick-start/) - Get started in 5 minutes
+- [Configuration](https://yourusername.github.io/crump/configuration/) - YAML configuration reference
+- [CLI Reference](https://yourusername.github.io/crump/cli-reference/) - Command-line documentation
+- [Features](https://yourusername.github.io/crump/features/) - Detailed feature documentation
+- [API Reference](https://yourusername.github.io/crump/api-reference/) - Python API documentation
+- [Development](https://yourusername.github.io/crump/development/) - Contributing guide
 
 ## Use Cases
 
@@ -116,10 +116,10 @@ This configuration:
 
 ```bash
 # Using pip
-pip install data-sync
+pip install crump
 
 # Using uv
-uv pip install data-sync
+uv pip install crump
 ```
 
 Requires Python 3.11+ and PostgreSQL (or SQLite for testing).
@@ -128,24 +128,24 @@ Requires Python 3.11+ and PostgreSQL (or SQLite for testing).
 
 ```bash
 # Analyze CSV and generate configuration
-data-sync prepare data.csv config.yaml my_job
+crump prepare data.csv crump_config.yaml my_job
 
 # Sync with database
 export DATABASE_URL="postgresql://user:pass@localhost/mydb"
-data-sync sync data.csv config.yaml my_job
+crump sync data.csv crump_config.yaml my_job
 
 # Preview changes without modifying database
-data-sync sync data.csv config.yaml my_job --dry-run
+crump sync data.csv crump_config.yaml my_job --dry-run
 ```
 
 ## Programmatic Usage
 
 ```python
 from pathlib import Path
-from data_sync import sync_csv_to_postgres, SyncConfig
+from crump import sync_csv_to_postgres, SyncConfig
 
 # Load configuration
-config = SyncConfig.from_yaml(Path("config.yaml"))
+config = SyncConfig.from_yaml(Path("crump_config.yaml"))
 job = config.get_job("my_job")
 
 # Sync CSV to database
@@ -161,8 +161,8 @@ print(f"Synced {rows_synced} rows")
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/data-sync.git
-cd data-sync
+git clone https://github.com/yourusername/crump.git
+cd crump
 
 # Install with development dependencies
 uv sync --all-extras
@@ -174,11 +174,11 @@ uv run pytest -v
 ./generate-docs.sh
 ```
 
-See the [Development Guide](https://yourusername.github.io/data-sync/development/) for detailed instructions.
+See the [Development Guide](https://yourusername.github.io/crump/development/) for detailed instructions.
 
 ## Contributing
 
-Contributions are welcome! Please see the [Contributing Guide](https://yourusername.github.io/data-sync/contributing/) for details.
+Contributions are welcome! Please see the [Contributing Guide](https://yourusername.github.io/crump/contributing/) for details.
 
 ## License
 
@@ -186,9 +186,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support
 
-- 📖 [Documentation](https://yourusername.github.io/data-sync)
-- 🐛 [Issue Tracker](https://github.com/yourusername/data-sync/issues)
-- 💬 [Discussions](https://github.com/yourusername/data-sync/discussions)
+- 📖 [Documentation](https://yourusername.github.io/crump)
+- 🐛 [Issue Tracker](https://github.com/yourusername/crump/issues)
+- 💬 [Discussions](https://github.com/yourusername/crump/discussions)
 
 ## Acknowledgments
 

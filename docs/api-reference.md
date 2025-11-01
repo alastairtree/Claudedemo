@@ -1,30 +1,30 @@
 # API Reference
 
-Use data-sync programmatically as a Python library.
+Use crump programmatically as a Python library.
 
 ## Overview
 
-The `data-sync` package can be imported and used in your Python applications. This is useful for:
+The `crump` package can be imported and used in your Python applications. This is useful for:
 
 - Building custom ETL pipelines
 - Integrating with existing applications
 - Automating data synchronization workflows
-- Creating custom tools on top of data-sync
+- Creating custom tools on top of crump
 
 ## Installation
 
 ```bash
-pip install data-sync
+pip install crump
 ```
 
 ## Quick Example
 
 ```python
 from pathlib import Path
-from data_sync import sync_csv_to_postgres, SyncConfig
+from crump import sync_csv_to_postgres, SyncConfig
 
 # Load configuration
-config = SyncConfig.from_yaml(Path("config.yaml"))
+config = SyncConfig.from_yaml(Path("crump_config.yaml"))
 job = config.get_job("my_job")
 
 # Sync a CSV file
@@ -71,9 +71,9 @@ def sync_csv_to_postgres(
 
 ```python
 from pathlib import Path
-from data_sync import sync_csv_to_postgres, SyncConfig
+from crump import sync_csv_to_postgres, SyncConfig
 
-config = SyncConfig.from_yaml(Path("config.yaml"))
+config = SyncConfig.from_yaml(Path("crump_config.yaml"))
 job = config.get_job("users_sync")
 
 # Basic sync
@@ -123,9 +123,9 @@ def sync_csv_to_postgres_dry_run(
 
 ```python
 from pathlib import Path
-from data_sync import sync_csv_to_postgres_dry_run, SyncConfig
+from crump import sync_csv_to_postgres_dry_run, SyncConfig
 
-config = SyncConfig.from_yaml(Path("config.yaml"))
+config = SyncConfig.from_yaml(Path("crump_config.yaml"))
 job = config.get_job("my_job")
 
 summary = sync_csv_to_postgres_dry_run(
@@ -168,7 +168,7 @@ def analyze_csv_types_and_nullable(
 
 ```python
 from pathlib import Path
-from data_sync import analyze_csv_types_and_nullable
+from crump import analyze_csv_types_and_nullable
 
 column_info = analyze_csv_types_and_nullable(Path("data.csv"))
 
@@ -210,7 +210,7 @@ def suggest_id_column(columns: list[str]) -> str
 **Example**:
 
 ```python
-from data_sync import suggest_id_column
+from crump import suggest_id_column
 
 columns = ["user_id", "name", "email", "created_at"]
 id_col = suggest_id_column(columns)
@@ -245,10 +245,10 @@ class SyncConfig:
 
 ```python
 from pathlib import Path
-from data_sync import SyncConfig
+from crump import SyncConfig
 
 # Load from file
-config = SyncConfig.from_yaml(Path("config.yaml"))
+config = SyncConfig.from_yaml(Path("crump_config.yaml"))
 
 # Get a job
 job = config.get_job("my_job")
@@ -256,7 +256,7 @@ if job:
     print(f"Target table: {job.target_table}")
 
 # Create new config
-from data_sync import SyncJob, ColumnMapping
+from crump import SyncJob, ColumnMapping
 
 new_config = SyncConfig(jobs={})
 job = SyncJob(
@@ -265,7 +265,7 @@ job = SyncJob(
     id_mapping=[ColumnMapping("user_id", "id", "integer")]
 )
 new_config.add_or_update_job(job)
-new_config.save_to_yaml(Path("new_config.yaml"))
+new_config.save_to_yaml(Path("new_crump_config.yaml"))
 ```
 
 ### SyncJob
@@ -299,7 +299,7 @@ class SyncJob:
 **Example**:
 
 ```python
-from data_sync import SyncJob, ColumnMapping, Index, IndexColumn
+from crump import SyncJob, ColumnMapping, Index, IndexColumn
 
 job = SyncJob(
     name="users_sync",
@@ -337,7 +337,7 @@ class ColumnMapping:
 **Example**:
 
 ```python
-from data_sync import ColumnMapping
+from crump import ColumnMapping
 
 mapping = ColumnMapping(
     csv_column="user_id",
@@ -370,7 +370,7 @@ class FilenameToColumn:
 **Example**:
 
 ```python
-from data_sync import FilenameToColumn, FilenameColumnMapping
+from crump import FilenameToColumn, FilenameColumnMapping
 
 ftc = FilenameToColumn(
     template="sales_[date].csv",
@@ -409,7 +409,7 @@ class Index:
 **Example**:
 
 ```python
-from data_sync import Index, IndexColumn
+from crump import Index, IndexColumn
 
 # Single column index
 idx1 = Index(
@@ -433,7 +433,7 @@ Here's a complete example demonstrating various API features:
 
 ```python
 from pathlib import Path
-from data_sync import (
+from crump import (
     SyncConfig,
     SyncJob,
     ColumnMapping,
@@ -489,7 +489,7 @@ job = SyncJob(
 # Create config and save
 config = SyncConfig(jobs={})
 config.add_or_update_job(job)
-config.save_to_yaml(Path("config.yaml"))
+config.save_to_yaml(Path("crump_config.yaml"))
 
 # Extract filename values
 filename_values = job.filename_to_column.extract_values_from_filename(csv_path)
@@ -522,10 +522,10 @@ if input("Proceed with sync? (y/n): ").lower() == "y":
 
 ```python
 from pathlib import Path
-from data_sync import sync_csv_to_postgres, SyncConfig
+from crump import sync_csv_to_postgres, SyncConfig
 
 try:
-    config = SyncConfig.from_yaml(Path("config.yaml"))
+    config = SyncConfig.from_yaml(Path("crump_config.yaml"))
     job = config.get_job("my_job")
 
     if not job:
@@ -553,7 +553,7 @@ All functions include full type hints for IDE autocomplete and type checking:
 
 ```python
 from pathlib import Path
-from data_sync import sync_csv_to_postgres, SyncJob
+from crump import sync_csv_to_postgres, SyncJob
 
 # Type checker knows the types
 def sync_data(csv_file: Path, job: SyncJob) -> None:
@@ -570,4 +570,4 @@ def sync_data(csv_file: Path, job: SyncJob) -> None:
 
 - [Configuration Guide](configuration.md) - Learn about YAML configuration
 - [Features](features.md) - Detailed feature documentation
-- [Development](development.md) - Contributing to data-sync
+- [Development](development.md) - Contributing to crump

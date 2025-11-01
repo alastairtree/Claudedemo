@@ -417,7 +417,7 @@ This matches files like `imap_level2_primary_20240115_v002.cdf`.
 
 #### Automatic Cleanup
 
-When `use_to_delete_old_rows: true` is set, data-sync will:
+When `use_to_delete_old_rows: true` is set, crump will:
 
 1. Extract the value from the filename
 2. Add it to all synced rows
@@ -428,11 +428,11 @@ When `use_to_delete_old_rows: true` is set, data-sync will:
 
 ```bash
 # Day 1: Sync sales for 2024-01-15
-data-sync sync sales_2024-01-15.csv config.yaml daily_sales
+crump sync sales_2024-01-15.csv crump_config.yaml daily_sales
 # Result: Inserts 100 rows with sync_date = '2024-01-15'
 
 # Day 2: Re-sync same date with corrections (only 95 rows)
-data-sync sync sales_2024-01-15-corrected.csv config.yaml daily_sales
+crump sync sales_2024-01-15-corrected.csv crump_config.yaml daily_sales
 # Result: Updates 95 rows, deletes 5 stale rows for 2024-01-15
 #         Rows for other dates are untouched
 ```
@@ -495,7 +495,7 @@ indexes:
 The `prepare` command automatically suggests indexes:
 
 ```bash
-data-sync prepare activity_log.csv config.yaml user_activity
+crump prepare activity_log.csv crump_config.yaml user_activity
 ```
 
 Suggestion rules:
@@ -670,7 +670,7 @@ jobs:
 
 ## Best Practices
 
-1. **Use the prepare command**: Let data-sync analyze your CSV and generate configuration automatically
+1. **Use the prepare command**: Let crump analyze your CSV and generate configuration automatically
 2. **Start simple**: Begin with basic config, add features as needed
 3. **Use dry-run mode**: Test configuration before running actual syncs
 4. **Add indexes**: Define indexes for columns you'll query frequently
@@ -683,4 +683,4 @@ jobs:
 
 - [CLI Reference](cli-reference.md) - Learn about command-line options
 - [Features](features.md) - Detailed feature documentation
-- [API Reference](api-reference.md) - Use data-sync programmatically
+- [API Reference](api-reference.md) - Use crump programmatically

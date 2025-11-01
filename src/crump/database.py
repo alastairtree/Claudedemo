@@ -1,4 +1,4 @@
-"""Database operations for data_sync."""
+"""Database operations for crump."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Any, Protocol
 import psycopg
 from psycopg import sql
 
-from data_sync.config import SyncJob, apply_row_transformations
+from crump.config import SyncJob, apply_row_transformations
 
 logger = logging.getLogger(__name__)
 
@@ -899,7 +899,7 @@ class DatabaseConnection:
                     raise ValueError(f"Column '{col_mapping.csv_column}' not found in CSV")
         else:
             # Sync all columns
-            from data_sync.config import ColumnMapping
+            from crump.config import ColumnMapping
 
             sync_columns = list(job.id_mapping)
             for csv_col in csv_columns:

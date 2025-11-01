@@ -13,16 +13,16 @@ Install the package using pip or uv:
 === "Using pip"
 
     ```bash
-    pip install data-sync
+    pip install crump
     ```
 
 === "Using uv"
 
     ```bash
-    uv pip install data-sync
+    uv pip install crump
     ```
 
-This installs the `data-sync` CLI tool and makes the package available for programmatic use.
+This installs the `crump` CLI tool and makes the package available for programmatic use.
 
 ## Install from Source
 
@@ -30,8 +30,8 @@ For development or to get the latest unreleased features:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/data-sync.git
-cd data-sync
+git clone https://github.com/yourusername/crump.git
+cd crump
 
 # Install with uv (recommended)
 uv sync --all-extras
@@ -58,14 +58,14 @@ The devcontainer includes:
 
 ## Verify Installation
 
-After installation, verify that data-sync is installed correctly:
+After installation, verify that crump is installed correctly:
 
 ```bash
 # Check version
-data-sync --version
+crump --version
 
 # Show help
-data-sync --help
+crump --help
 ```
 
 You should see output showing the version number and available commands.
@@ -86,7 +86,7 @@ export DATABASE_URL="postgresql://user:password@localhost:5432/mydb"
 
 ```bash
 docker run -d \
-  --name postgres-data-sync \
+  --name postgres-crump \
   -e POSTGRES_PASSWORD=postgres \
   -e POSTGRES_DB=mydb \
   -p 5432:5432 \

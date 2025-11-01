@@ -1,12 +1,12 @@
-"""Command-line interface for data_sync."""
+"""Command-line interface for crump."""
 
 import click
 
-from data_sync import __version__
-from data_sync.cli_extract import extract
-from data_sync.cli_inspect import inspect
-from data_sync.cli_prepare import prepare
-from data_sync.cli_sync import sync
+from crump import __version__
+from crump.cli_extract import extract
+from crump.cli_inspect import inspect
+from crump.cli_prepare import prepare
+from crump.cli_sync import sync
 
 
 @click.group()

@@ -8,8 +8,8 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from data_sync.cdf_extractor import extract_cdf_to_csv
-from data_sync.config import (
+from crump.cdf_extractor import extract_cdf_to_csv
+from crump.config import (
     ColumnMapping,
     FilenameColumnMapping,
     FilenameToColumn,
@@ -18,7 +18,7 @@ from data_sync.config import (
     SyncConfig,
     SyncJob,
 )
-from data_sync.type_detection import analyze_csv_types_and_nullable, suggest_id_column
+from crump.type_detection import analyze_csv_types_and_nullable, suggest_id_column
 
 console = Console()
 
@@ -353,22 +353,22 @@ def prepare(file_paths: tuple[Path, ...], config: Path, job: str | None, force: 
 
     Examples:
         # Create job config with auto-generated name
-        data-sync prepare data.csv --config config.yaml
+        crump prepare data.csv --config crump_config.yaml
 
         # Process a CDF file (creates multiple jobs, one per variable group)
-        data-sync prepare data.cdf --config config.yaml
+        crump prepare data.cdf --config crump_config.yaml
 
         # Create job config with custom name
-        data-sync prepare data.csv --config config.yaml --job my_job
+        crump prepare data.csv --config crump_config.yaml --job my_job
 
         # Process multiple CSV files (auto-generates job names)
-        data-sync prepare file1.csv file2.csv file3.csv --config config.yaml
+        crump prepare file1.csv file2.csv file3.csv --config crump_config.yaml
 
         # Process multiple files with glob pattern (CSV and CDF supported)
-        data-sync prepare data/*.csv data/*.cdf -c config.yaml
+        crump prepare data/*.csv data/*.cdf -c crump_config.yaml
 
         # Overwrite existing job config
-        data-sync prepare data.csv -c config.yaml -j my_job --force
+        crump prepare data.csv -c crump_config.yaml -j my_job --force
     """
     temp_dir: Path | None = None
     temp_csv_files: list[Path] = []

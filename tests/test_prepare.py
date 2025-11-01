@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from data_sync.cli_prepare import generate_job_name_from_filename
+from crump.cli_prepare import generate_job_name_from_filename
 
 
 class TestGenerateJobNameFromFilename:
@@ -88,9 +88,9 @@ class TestPrepareCommandIntegration:
         """Test prepare with single file and auto-generated job name."""
         from click.testing import CliRunner
 
-        from data_sync.cli_prepare import prepare
+        from crump.cli_prepare import prepare
 
-        config_file = tmp_path / "config.yaml"
+        config_file = tmp_path / "crump_config.yaml"
         runner = CliRunner()
 
         result = runner.invoke(prepare, [str(sample_csv), "--config", str(config_file)])
@@ -99,7 +99,7 @@ class TestPrepareCommandIntegration:
         assert config_file.exists()
 
         # Load config and check job was created with auto-generated name
-        from data_sync.config import SyncConfig
+        from crump.config import SyncConfig
 
         config = SyncConfig.from_yaml(config_file)
         # Expected name: "test_data_2024.csv" -> "test_data"
@@ -111,9 +111,9 @@ class TestPrepareCommandIntegration:
         """Test prepare with single file and custom job name."""
         from click.testing import CliRunner
 
-        from data_sync.cli_prepare import prepare
+        from crump.cli_prepare import prepare
 
-        config_file = tmp_path / "config.yaml"
+        config_file = tmp_path / "crump_config.yaml"
         runner = CliRunner()
 
         result = runner.invoke(
@@ -124,7 +124,7 @@ class TestPrepareCommandIntegration:
         assert config_file.exists()
 
         # Load config and check job was created with custom name
-        from data_sync.config import SyncConfig
+        from crump.config import SyncConfig
 
         config = SyncConfig.from_yaml(config_file)
         assert "my_custom_job" in config.jobs
@@ -136,9 +136,9 @@ class TestPrepareCommandIntegration:
         """Test prepare with multiple files and auto-generated job names."""
         from click.testing import CliRunner
 
-        from data_sync.cli_prepare import prepare
+        from crump.cli_prepare import prepare
 
-        config_file = tmp_path / "config.yaml"
+        config_file = tmp_path / "crump_config.yaml"
         runner = CliRunner()
 
         result = runner.invoke(
@@ -149,7 +149,7 @@ class TestPrepareCommandIntegration:
         assert config_file.exists()
 
         # Load config and check both jobs were created
-        from data_sync.config import SyncConfig
+        from crump.config import SyncConfig
 
         config = SyncConfig.from_yaml(config_file)
         # Expected names: "test_data_2024.csv" -> "test_data", "user__info__123.csv" -> "user_info"
@@ -162,9 +162,9 @@ class TestPrepareCommandIntegration:
         """Test that specifying job name with multiple files fails."""
         from click.testing import CliRunner
 
-        from data_sync.cli_prepare import prepare
+        from crump.cli_prepare import prepare
 
-        config_file = tmp_path / "config.yaml"
+        config_file = tmp_path / "crump_config.yaml"
         runner = CliRunner()
 
         result = runner.invoke(
@@ -179,9 +179,9 @@ class TestPrepareCommandIntegration:
         """Test that prepare can update existing job with --force."""
         from click.testing import CliRunner
 
-        from data_sync.cli_prepare import prepare
+        from crump.cli_prepare import prepare
 
-        config_file = tmp_path / "config.yaml"
+        config_file = tmp_path / "crump_config.yaml"
         runner = CliRunner()
 
         # First run
@@ -203,7 +203,7 @@ class TestDetectFilenamePatterns:
 
     def test_detect_yyyymmdd_pattern(self) -> None:
         """Test detecting YYYYMMDD date pattern."""
-        from data_sync.cli_prepare import detect_filename_patterns
+        from crump.cli_prepare import detect_filename_patterns
 
         result = detect_filename_patterns("data_20240115.csv")
         assert result is not None
@@ -215,7 +215,7 @@ class TestDetectFilenamePatterns:
 
     def test_detect_yyyy_mm_dd_pattern(self) -> None:
         """Test detecting YYYY-MM-DD date pattern."""
-        from data_sync.cli_prepare import detect_filename_patterns
+        from crump.cli_prepare import detect_filename_patterns
 
         result = detect_filename_patterns("sales_2024-01-15.csv")
         assert result is not None
@@ -224,7 +224,7 @@ class TestDetectFilenamePatterns:
 
     def test_detect_yyyy_mm_dd_underscore_pattern(self) -> None:
         """Test detecting YYYY_MM_DD date pattern."""
-        from data_sync.cli_prepare import detect_filename_patterns
+        from crump.cli_prepare import detect_filename_patterns
 
         result = detect_filename_patterns("report_2024_12_31.csv")
         assert result is not None
@@ -233,14 +233,14 @@ class TestDetectFilenamePatterns:
 
     def test_no_pattern_detected(self) -> None:
         """Test when no date pattern is found."""
-        from data_sync.cli_prepare import detect_filename_patterns
+        from crump.cli_prepare import detect_filename_patterns
 
         result = detect_filename_patterns("simple_data.csv")
         assert result is None
 
     def test_date_in_middle_of_filename(self) -> None:
         """Test date pattern in middle of filename."""
-        from data_sync.cli_prepare import detect_filename_patterns
+        from crump.cli_prepare import detect_filename_patterns
 
         result = detect_filename_patterns("prefix_20241225_suffix.csv")
         assert result is not None
@@ -248,7 +248,7 @@ class TestDetectFilenamePatterns:
 
     def test_multiple_date_formats_prefer_first(self) -> None:
         """Test that first matching pattern is used when multiple exist."""
-        from data_sync.cli_prepare import detect_filename_patterns
+        from crump.cli_prepare import detect_filename_patterns
 
         # YYYYMMDD appears first in search order
         result = detect_filename_patterns("data_20240115_2024-01-15.csv")
@@ -259,7 +259,7 @@ class TestDetectFilenamePatterns:
 
     def test_extraction_works_with_detected_pattern(self) -> None:
         """Test that the detected pattern can actually extract values."""
-        from data_sync.cli_prepare import detect_filename_patterns
+        from crump.cli_prepare import detect_filename_patterns
 
         result = detect_filename_patterns("sales_20240315.csv")
         assert result is not None
@@ -291,10 +291,10 @@ class TestPrepareWithFilenameDetection:
         """Test that prepare command detects date pattern and adds filename_to_column."""
         from click.testing import CliRunner
 
-        from data_sync.cli_prepare import prepare
-        from data_sync.config import SyncConfig
+        from crump.cli_prepare import prepare
+        from crump.config import SyncConfig
 
-        config_file = tmp_path / "config.yaml"
+        config_file = tmp_path / "crump_config.yaml"
         runner = CliRunner()
 
         result = runner.invoke(prepare, [str(dated_csv), "--config", str(config_file)])
@@ -317,12 +317,12 @@ class TestPrepareWithFilenameDetection:
         """Test that no filename_to_column is added for files without date patterns."""
         from click.testing import CliRunner
 
-        from data_sync.cli_prepare import prepare
-        from data_sync.config import SyncConfig
+        from crump.cli_prepare import prepare
+        from crump.config import SyncConfig
 
         # sample_csv is from parent class fixture: "test_data_2024.csv"
         # This should match YYYYMMDD pattern (2024)
-        config_file = tmp_path / "config.yaml"
+        config_file = tmp_path / "crump_config.yaml"
         runner = CliRunner()
 
         result = runner.invoke(prepare, [str(sample_csv), "--config", str(config_file)])
@@ -364,13 +364,13 @@ class TestPrepareWithCDFFiles:
         """Test prepare with a single CDF file."""
         from click.testing import CliRunner
 
-        from data_sync.cli_prepare import prepare
-        from data_sync.config import SyncConfig
+        from crump.cli_prepare import prepare
+        from crump.config import SyncConfig
 
         if not sample_cdf.exists():
             pytest.skip("Sample CDF file not found")
 
-        config_file = tmp_path / "config.yaml"
+        config_file = tmp_path / "crump_config.yaml"
         runner = CliRunner()
 
         result = runner.invoke(prepare, [str(sample_cdf), "--config", str(config_file)])
@@ -393,8 +393,8 @@ class TestPrepareWithCDFFiles:
         """Test prepare with both CDF and CSV files."""
         from click.testing import CliRunner
 
-        from data_sync.cli_prepare import prepare
-        from data_sync.config import SyncConfig
+        from crump.cli_prepare import prepare
+        from crump.config import SyncConfig
 
         if not sample_cdf.exists():
             pytest.skip("Sample CDF file not found")
@@ -403,7 +403,7 @@ class TestPrepareWithCDFFiles:
         csv_file = tmp_path / "test.csv"
         csv_file.write_text("id,value\n1,100\n2,200\n")
 
-        config_file = tmp_path / "config.yaml"
+        config_file = tmp_path / "crump_config.yaml"
         runner = CliRunner()
 
         result = runner.invoke(
@@ -424,12 +424,12 @@ class TestPrepareWithCDFFiles:
         """Test prepare CDF file with --force flag."""
         from click.testing import CliRunner
 
-        from data_sync.cli_prepare import prepare
+        from crump.cli_prepare import prepare
 
         if not sample_cdf.exists():
             pytest.skip("Sample CDF file not found")
 
-        config_file = tmp_path / "config.yaml"
+        config_file = tmp_path / "crump_config.yaml"
         runner = CliRunner()
 
         # First run
@@ -444,13 +444,13 @@ class TestPrepareWithCDFFiles:
         """Test that unsupported file types are handled gracefully."""
         from click.testing import CliRunner
 
-        from data_sync.cli_prepare import prepare
+        from crump.cli_prepare import prepare
 
         # Create an unsupported file
         unsupported_file = tmp_path / "test.txt"
         unsupported_file.write_text("some text")
 
-        config_file = tmp_path / "config.yaml"
+        config_file = tmp_path / "crump_config.yaml"
         runner = CliRunner()
 
         result = runner.invoke(prepare, [str(unsupported_file), "--config", str(config_file)])
@@ -462,13 +462,13 @@ class TestPrepareWithCDFFiles:
         """Test handling of CDF extraction failure."""
         from click.testing import CliRunner
 
-        from data_sync.cli_prepare import prepare
+        from crump.cli_prepare import prepare
 
         # Create a fake CDF file (invalid content)
         fake_cdf = tmp_path / "fake.cdf"
         fake_cdf.write_text("not a real CDF file")
 
-        config_file = tmp_path / "config.yaml"
+        config_file = tmp_path / "crump_config.yaml"
         runner = CliRunner()
 
         result = runner.invoke(prepare, [str(fake_cdf), "--config", str(config_file)])
@@ -487,7 +487,7 @@ class TestExtractCDFToTempCSV:
 
     def test_extract_cdf_to_temp_csv(self, sample_cdf: Path, tmp_path: Path) -> None:
         """Test extracting CDF to temporary CSV files."""
-        from data_sync.cli_prepare import _extract_cdf_to_temp_csv
+        from crump.cli_prepare import _extract_cdf_to_temp_csv
 
         if not sample_cdf.exists():
             pytest.skip("Sample CDF file not found")
@@ -513,7 +513,7 @@ class TestExtractCDFToTempCSV:
 
     def test_extract_cdf_max_records_limit(self, sample_cdf: Path, tmp_path: Path) -> None:
         """Test that max_records parameter limits extraction."""
-        from data_sync.cli_prepare import _extract_cdf_to_temp_csv
+        from crump.cli_prepare import _extract_cdf_to_temp_csv
 
         if not sample_cdf.exists():
             pytest.skip("Sample CDF file not found")
@@ -552,10 +552,10 @@ class TestCDFEndToEndWorkflow:
         """
         from click.testing import CliRunner
 
-        from data_sync.cli_extract import extract
-        from data_sync.cli_prepare import prepare
-        from data_sync.cli_sync import sync
-        from data_sync.config import SyncConfig
+        from crump.cli_extract import extract
+        from crump.cli_prepare import prepare
+        from crump.cli_sync import sync
+        from crump.config import SyncConfig
 
         if not sample_cdf.exists():
             pytest.skip("Sample CDF file not found")
@@ -580,7 +580,7 @@ class TestCDFEndToEndWorkflow:
         assert len(csv_files) > 0, "No CSV files were extracted"
 
         # Step 2: Run prepare command on extracted CSV files to generate config
-        config_file = tmp_path / "config.yaml"
+        config_file = tmp_path / "crump_config.yaml"
         csv_file_args = [str(f) for f in csv_files]
         prepare_result = runner.invoke(prepare, csv_file_args + ["--config", str(config_file)])
 
@@ -642,10 +642,10 @@ class TestCDFEndToEndWorkflow:
         """Test that CDF data types are correctly preserved in database."""
         from click.testing import CliRunner
 
-        from data_sync.cli_extract import extract
-        from data_sync.cli_prepare import prepare
-        from data_sync.cli_sync import sync
-        from data_sync.config import SyncConfig
+        from crump.cli_extract import extract
+        from crump.cli_prepare import prepare
+        from crump.cli_sync import sync
+        from crump.config import SyncConfig
 
         if not sample_cdf.exists():
             pytest.skip("Sample CDF file not found")
@@ -665,7 +665,7 @@ class TestCDFEndToEndWorkflow:
         assert len(csv_files) > 0
 
         # Prepare config from extracted CSVs
-        config_file = tmp_path / "config.yaml"
+        config_file = tmp_path / "crump_config.yaml"
         csv_file_args = [str(f) for f in csv_files]
         prepare_result = runner.invoke(prepare, csv_file_args + ["--config", str(config_file)])
         assert prepare_result.exit_code == 0

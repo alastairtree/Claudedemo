@@ -20,9 +20,9 @@ class TestCDFEndToEndWorkflow:
         """Test 2-step workflow: prepare CDF → sync CDF to database (200 rows only)."""
         from click.testing import CliRunner
 
-        from data_sync.cli_prepare import prepare
-        from data_sync.cli_sync import sync
-        from data_sync.config import SyncConfig
+        from crump.cli_prepare import prepare
+        from crump.cli_sync import sync
+        from crump.config import SyncConfig
 
         if not sample_cdf.exists():
             pytest.skip("Sample CDF file not found")
@@ -31,7 +31,7 @@ class TestCDFEndToEndWorkflow:
         runner = CliRunner()
 
         # Step 1: Prepare config from CDF file
-        config_file = tmp_path / "config.yaml"
+        config_file = tmp_path / "crump_config.yaml"
         prepare_result = runner.invoke(prepare, [str(sample_cdf), "--config", str(config_file)])
         assert prepare_result.exit_code == 0, f"Prepare failed: {prepare_result.output}"
         assert config_file.exists(), "Config file was not created"
@@ -95,8 +95,8 @@ class TestCDFEndToEndWorkflow:
         """Test that dry-run mode works with CDF files."""
         from click.testing import CliRunner
 
-        from data_sync.cli_prepare import prepare
-        from data_sync.cli_sync import sync
+        from crump.cli_prepare import prepare
+        from crump.cli_sync import sync
 
         if not sample_cdf.exists():
             pytest.skip("Sample CDF file not found")
@@ -105,11 +105,11 @@ class TestCDFEndToEndWorkflow:
         runner = CliRunner()
 
         # Prepare config from CDF
-        config_file = tmp_path / "config.yaml"
+        config_file = tmp_path / "crump_config.yaml"
         prepare_result = runner.invoke(prepare, [str(sample_cdf), "--config", str(config_file)])
         assert prepare_result.exit_code == 0
 
-        from data_sync.config import SyncConfig
+        from crump.config import SyncConfig
 
         config = SyncConfig.from_yaml(config_file)
         first_job_name = list(config.jobs.keys())[0]
