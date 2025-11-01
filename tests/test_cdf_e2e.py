@@ -47,6 +47,7 @@ class TestCDFEndToEndWorkflow:
             [
                 str(sample_cdf),
                 str(config_file),
+                "--job",
                 first_job_name,
                 "--db-url",
                 db_url,
@@ -119,6 +120,7 @@ class TestCDFEndToEndWorkflow:
             [
                 str(sample_cdf),
                 str(config_file),
+                "--job",
                 first_job_name,
                 "--db-url",
                 db_url,

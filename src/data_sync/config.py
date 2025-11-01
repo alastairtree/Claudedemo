@@ -405,6 +405,40 @@ class SyncConfig:
         """
         return self.jobs.get(name)
 
+    def get_job_or_auto_detect(self, name: str | None = None) -> tuple[SyncJob, str] | None:
+        """Get a job by name, or auto-detect if there's only one job.
+
+        Args:
+            name: Name of the job (optional - if None, auto-detect single job)
+
+        Returns:
+            Tuple of (SyncJob, job_name) if found/detected, None otherwise
+
+        Raises:
+            ValueError: If name is None and config has multiple jobs
+        """
+        if name is not None:
+            # Job name explicitly provided
+            job = self.jobs.get(name)
+            if job:
+                return (job, name)
+            return None
+
+        # Auto-detect: only allowed if there's exactly one job
+        if len(self.jobs) == 0:
+            return None
+
+        if len(self.jobs) == 1:
+            # Only one job - use it automatically
+            job_name = next(iter(self.jobs.keys()))
+            return (self.jobs[job_name], job_name)
+
+        # Multiple jobs - cannot auto-detect
+        raise ValueError(
+            f"Config contains {len(self.jobs)} jobs. "
+            "Please specify --job to select which one to use."
+        )
+
     @classmethod
     def from_yaml(cls, config_path: Path) -> SyncConfig:
         r"""Load configuration from a YAML file.

@@ -31,10 +31,10 @@ class TestSyncCommand:
         """Test sync command help."""
         result = cli_runner.invoke(main, ["sync", "--help"])
         assert result.exit_code == 0
-        assert "Sync a CSV file" in result.output
+        assert "Sync a CSV" in result.output
         assert "FILE_PATH" in result.output
         assert "CONFIG" in result.output
-        assert "JOB" in result.output
+        assert "--job" in result.output
 
     def test_sync_missing_arguments(self, cli_runner: CliRunner) -> None:
         """Test sync without required arguments fails."""
@@ -57,6 +57,7 @@ class TestSyncCommand:
                 "sync",
                 str(nonexistent),
                 str(config_file),
+                "--job",
                 "test",
                 "--db-url",
                 "postgresql://localhost/test",
@@ -77,6 +78,7 @@ class TestSyncCommand:
                 "sync",
                 str(csv_file),
                 str(nonexistent_config),
+                "--job",
                 "test",
                 "--db-url",
                 "postgresql://localhost/test",
@@ -100,6 +102,7 @@ class TestSyncCommand:
                 "sync",
                 str(csv_file),
                 str(config_file),
+                "--job",
                 "nonexistent_job",
                 "--db-url",
                 "postgresql://localhost/test",
@@ -281,6 +284,7 @@ class TestDryRunCommand:
                 "sync",
                 str(csv_file),
                 str(config_file),
+                "--job",
                 "test_job",
                 "--db-url",
                 db_url,
@@ -325,6 +329,7 @@ class TestDryRunCommand:
                 "sync",
                 str(csv_file),
                 str(config_file),
+                "--job",
                 "test_job",
                 "--db-url",
                 db_url,

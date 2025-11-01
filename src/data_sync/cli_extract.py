@@ -74,14 +74,14 @@ def format_file_size(size_bytes: int) -> str:
     "-c",
     type=click.Path(exists=True, path_type=Path),
     default=None,
-    help="YAML configuration file for column mapping (requires --job). Applies same transformations as sync command.",
+    help="YAML configuration file for column mapping. Applies same transformations as sync command.",
 )
 @click.option(
     "--job",
     "-j",
     type=str,
     default=None,
-    help="Job name from config file to use for column selection and mapping (requires --config).",
+    help="Job name from config file (optional - auto-detected if config contains only one job).",
 )
 def extract(
     files: tuple[Path, ...],
@@ -128,30 +128,30 @@ def extract(
         # Extract using config file (applies column mappings and transformations)
         data-sync extract data.cdf -o output/ --config config.yaml --job my_job
 
+        # Extract with auto-detected job (when config has only one job)
+        data-sync extract data.cdf -o output/ --config config.yaml
+
         # Extract with config and limited records
         data-sync extract data.cdf --config config.yaml --job my_job --max-records 100
 
         # Extract with config and append to existing transformed CSV
-        data-sync extract data1.cdf --config config.yaml --job my_job --append
-        data-sync extract data2.cdf --config config.yaml --job my_job --append
+        data-sync extract data1.cdf --config config.yaml --append
+        data-sync extract data2.cdf --config config.yaml --append
 
         # Extract with config and custom filename template
-        data-sync extract data.cdf --config config.yaml --job my_job --filename "processed_[SOURCE_FILE].csv"
+        data-sync extract data.cdf --config config.yaml --filename "processed_[SOURCE_FILE].csv"
 
         # Extract with config, specific variables, and custom filename
-        data-sync extract data.cdf --config config.yaml --job my_job -v epoch -v vectors --filename "vectors_[SOURCE_FILE].csv"
+        data-sync extract data.cdf --config config.yaml -v epoch -v vectors --filename "vectors_[SOURCE_FILE].csv"
     """
     try:
         # Validate config/job parameters
-        if (config is None) != (job is None):
-            console.print(
-                "[red]Error:[/red] --config and --job must be used together. "
-                "Either provide both or neither."
-            )
+        if job is not None and config is None:
+            console.print("[red]Error:[/red] --job requires --config to be specified.")
             raise click.Abort()
 
         # Mode 1: Config-based extraction (applies column mappings)
-        if config and job:
+        if config is not None:
             return _extract_with_config(
                 files, output_path, config, job, max_records, automerge, variables, append, filename
             )
@@ -168,7 +168,7 @@ def _extract_with_config(
     files: tuple[Path, ...],
     output_path: Path | None,
     config_path: Path,
-    job_name: str,
+    job_name: str | None,
     max_records: int | None,
     automerge: bool,
     variables: tuple[str, ...],
@@ -181,7 +181,7 @@ def _extract_with_config(
         files: CDF files to extract
         output_path: Output directory for CSV files
         config_path: Path to YAML config file
-        job_name: Job name from config
+        job_name: Job name from config (None to auto-detect if single job)
         max_records: Maximum records to extract
         automerge: Whether to merge variables with same record count
         variables: Specific variable names to extract
@@ -191,13 +191,30 @@ def _extract_with_config(
     # Load configuration
     sync_config = SyncConfig.from_yaml(config_path)
 
-    # Get the specified job
-    sync_job = sync_config.get_job(job_name)
-    if not sync_job:
+    # Get the specified job or auto-detect if there's only one
+    try:
+        result = sync_config.get_job_or_auto_detect(job_name)
+        if not result:
+            if job_name:
+                available_jobs = ", ".join(sync_config.jobs.keys())
+                console.print(f"[red]Error:[/red] Job '{job_name}' not found in config")
+                console.print(f"[dim]Available jobs: {available_jobs}[/dim]")
+            else:
+                console.print("[red]Error:[/red] Config file contains no jobs")
+            raise click.Abort()
+
+        sync_job, detected_job_name = result
+
+        # Inform user if we auto-detected the job
+        if job_name is None:
+            console.print(f"[dim]Auto-detected job: {detected_job_name}[/dim]")
+
+    except ValueError as e:
+        # Multiple jobs found, need explicit job name
         available_jobs = ", ".join(sync_config.jobs.keys())
-        console.print(f"[red]Error:[/red] Job '{job_name}' not found in config")
+        console.print(f"[red]Error:[/red] {e}")
         console.print(f"[dim]Available jobs: {available_jobs}[/dim]")
-        raise click.Abort()
+        raise click.Abort() from e
 
     # Determine output directory
     output_dir = output_path if output_path else Path.cwd()
