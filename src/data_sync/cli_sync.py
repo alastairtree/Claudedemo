@@ -61,7 +61,13 @@ def _extract_cdf_and_find_csv(
 @click.command()
 @click.argument("file_path", type=click.Path(exists=True, path_type=Path), required=True)
 @click.argument("config", type=click.Path(exists=True, path_type=Path), required=True)
-@click.argument("job", type=str, required=True)
+@click.option(
+    "--job",
+    "-j",
+    type=str,
+    default=None,
+    help="Job name from config file (optional - auto-detected if config contains only one job)",
+)
 @click.option(
     "--db-url",
     envvar="DATABASE_URL",
@@ -81,37 +87,47 @@ def _extract_cdf_and_find_csv(
     help="Maximum number of records to extract per variable from CDF files (default: extract all records)",
 )
 def sync(
-    file_path: Path, config: Path, job: str, db_url: str, dry_run: bool, max_records: int | None
+    file_path: Path,
+    config: Path,
+    job: str | None,
+    db_url: str,
+    dry_run: bool,
+    max_records: int | None,
 ) -> None:
     """Sync a CSV or CDF file to the database using a configuration.
 
     Supports both CSV and CDF file formats. For CDF files, data is automatically
     extracted to temporary CSV files before syncing to the database.
 
+    If the config file contains only one job, the --job parameter is optional
+    and will be auto-detected.
+
     Arguments:
         FILE_PATH: Path to the CSV or CDF file to sync (required)
         CONFIG: Path to the YAML configuration file (required)
-        JOB: Name of the job to run from the config file (required)
 
     Examples:
-        # Sync a CSV file
-        data-sync sync data.csv config.yaml my_job --db-url postgresql://localhost/mydb
+        # Sync with explicit job name
+        data-sync sync data.csv config.yaml --job my_job --db-url postgresql://localhost/mydb
+
+        # Sync with auto-detected job (when config has only one job)
+        data-sync sync data.csv config.yaml --db-url postgresql://localhost/mydb
 
         # Sync a CDF file (extracts to CSV automatically)
-        data-sync sync data.cdf config.yaml my_job --db-url postgresql://localhost/mydb
+        data-sync sync data.cdf config.yaml --job my_job --db-url postgresql://localhost/mydb
 
         # Sync CDF with limited records (useful for testing)
-        data-sync sync data.cdf config.yaml my_job --db-url postgresql://localhost/mydb --max-records 200
+        data-sync sync data.cdf config.yaml --job my_job --db-url postgresql://localhost/mydb --max-records 200
 
         # Using environment variable
         export DATABASE_URL=postgresql://localhost/mydb
-        data-sync sync data.csv config.yaml my_job
+        data-sync sync data.csv config.yaml --job my_job
 
         # Dry-run mode to preview changes
-        data-sync sync data.csv config.yaml my_job --dry-run
+        data-sync sync data.csv config.yaml --job my_job --dry-run
 
-        # Dry-run with limited records from CDF
-        data-sync sync data.cdf config.yaml my_job --dry-run --max-records 100
+        # Dry-run with limited records from CDF and auto-detected job
+        data-sync sync data.cdf config.yaml --dry-run --max-records 100
     """
     temp_dir: Path | None = None
     temp_csv_files: list[Path] = []
@@ -120,13 +136,30 @@ def sync(
         # Load configuration
         sync_config = SyncConfig.from_yaml(config)
 
-        # Get the specified job
-        sync_job = sync_config.get_job(job)
-        if not sync_job:
+        # Get the specified job or auto-detect if there's only one
+        try:
+            result = sync_config.get_job_or_auto_detect(job)
+            if not result:
+                if job:
+                    available_jobs = ", ".join(sync_config.jobs.keys())
+                    console.print(f"[red]Error:[/red] Job '{job}' not found in config")
+                    console.print(f"[dim]Available jobs: {available_jobs}[/dim]")
+                else:
+                    console.print("[red]Error:[/red] Config file contains no jobs")
+                raise click.Abort()
+
+            sync_job, detected_job_name = result
+
+            # Inform user if we auto-detected the job
+            if job is None:
+                console.print(f"[dim]Auto-detected job: {detected_job_name}[/dim]")
+
+        except ValueError as e:
+            # Multiple jobs found, need explicit job name
             available_jobs = ", ".join(sync_config.jobs.keys())
-            console.print(f"[red]Error:[/red] Job '{job}' not found in config")
+            console.print(f"[red]Error:[/red] {e}")
             console.print(f"[dim]Available jobs: {available_jobs}[/dim]")
-            raise click.Abort()
+            raise click.Abort() from e
 
         # Check if input file is CDF - if so, extract to temporary CSV
         csv_file_to_sync = file_path
